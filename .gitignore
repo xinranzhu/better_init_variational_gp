@@ -1,0 +1,4 @@
+*.pyc
+*.pkl
+*.ipynb
+svgp_evaluation/wandb
