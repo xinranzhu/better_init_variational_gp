@@ -134,3 +134,9 @@ class SVGP_exp(Experiment):
 
 if __name__ == "__main__":
     fire.Fire(SVGP_exp)
+
+# use lm initialization
+# python eval_svgp.py --obj_name 3droad --dim 2 - init_hypers --num_inducing 50 --init_method lm --init_expid TEST - train --num_epochs 300 --lr 0.0005 --scheduler multistep --gamma 0.1 --train_batch_size 1024 --elbo_beta 0.1 --mll_type PLL - eval - done
+
+# use kmeans initialization
+# python eval_svgp.py --obj_name 3droad --dim 2 - init_hypers --num_inducing 50 --init_method kmeans - train --num_epochs 300 --lr 0.01 --scheduler multistep --gamma 0.1 --train_batch_size 1024 --elbo_beta 1.0 --mll_type PLL - eval - done

@@ -21,7 +21,7 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 parser = argparse.ArgumentParser(description="parse args")
 parser.add_argument("--obj_name", type=str, default="3droad")
 parser.add_argument("--dim", type=int, default=2)
-parser.add_argument("--expid", type=str, default="-")
+parser.add_argument("--expid", type=str, default="TEST")
 parser.add_argument("--kernel_type", type=str, default="SE")
 parser.add_argument("--num_inducing", type=int, default=50)
 
