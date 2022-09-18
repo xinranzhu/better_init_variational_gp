@@ -135,6 +135,7 @@ start = time.time()
 ulm, thetalm, norm_hist = levenberg_marquardt(fproj_test, Jproj_test, ufwd, theta_init,
     rtol=rtol, tau=tau, nsteps=lm_nsteps)
 clm = spline_fit(ulm, train_x, train_y, thetalm, phi, sigma=sigma)
+end = time.time()
 time_lm = end-start
 args["time"] = time_lm
 r = rms_vs_truth(ulm, clm, thetalm, phi, test_x, test_y)
