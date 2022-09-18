@@ -3,13 +3,15 @@ import pickle as pkl
 import argparse
 from splines import spline_K
 
-def store(obj_name, method_name, npoints, c, u, theta, phi, sigma, expid=None):
+def store(obj_name, method_name, npoints, c, u, theta, phi, sigma, expid=None, args=None):
     dim = u.shape[1]
     Kuu = spline_K(u, u, theta, phi)
     jitter = torch.diag(1e-8*torch.ones(Kuu.shape[0])).to(device=Kuu.device)
     L = torch.linalg.cholesky(Kuu + jitter)
     c = torch.matmul(L.T, c)
     res = {"u": u.cpu(), "c": c.cpu(), "theta": theta, "sigma": sigma}
+    if args:
+        res.update(args)
     pkl.dump(res, open(f'../data/{obj_name}-{dim}_{method_name}_m{npoints}_{expid}.pkl', 'wb'))
 
 

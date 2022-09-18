@@ -44,16 +44,14 @@ def Dtheta_phi(rho, theta):
     return kernel.Dtheta_phi(rho)
 
 # loda data
-xx_data = np.loadtxt(f'../data/{obj_name}-{dim}_xx_data.csv', delimiter=",",dtype='float')
-xx_truth = np.loadtxt(f'../data/{obj_name}-{dim}_xx_truth.csv', delimiter=",",dtype='float')
-y_data = np.loadtxt(f'../data/{obj_name}-{dim}_y_data.csv', delimiter=",",dtype='float')
-y_truth = np.loadtxt(f'../data/{obj_name}-{dim}_y_truth.csv', delimiter=",",dtype='float')
-
-
-train_x = torch.tensor(xx_data)
-test_x = torch.tensor(xx_truth)
-train_y = torch.tensor(y_data)
-test_y = torch.tensor(y_truth)
+train_x = np.loadtxt(f'../data/{obj_name}-{dim}_xx_data.csv', delimiter=",",dtype='float')
+test_x = np.loadtxt(f'../data/{obj_name}-{dim}_xx_truth.csv', delimiter=",",dtype='float')
+train_y = np.loadtxt(f'../data/{obj_name}-{dim}_y_data.csv', delimiter=",",dtype='float')
+test_y = np.loadtxt(f'../data/{obj_name}-{dim}_y_truth.csv', delimiter=",",dtype='float')
+train_x = torch.tensor(train_x)
+test_x = torch.tensor(test_x)
+train_y = torch.tensor(train_y)
+test_y = torch.tensor(test_y)
 train_n = train_x.shape[0]
 test_n = test_x.shape[0]
 
@@ -70,16 +68,29 @@ tau = 0.05
 theta_penalty = 10.0
 lm_nsteps = 150
 fwd_num_start = 3
+ncand = 10000
+count_random_max = 10
+max_obj_tol = 1e-6
+args["theta_init"] = theta_init
+args["sigma"] = sigma
+args["rtol"] = rtol
+args["tau"] = tau
+args["theta_penalty"] = theta_penalty
+args["lm_nsteps"] = lm_nsteps
+args["fwd_num_start"] = fwd_num_start
+args["ncand"] = ncand
+args["count_random_max"] = count_random_max
 verbose=True
 
 # Forward regression 
 method = "fwd"
 ufwd = spline_forward_regression(train_x, train_y, fwd_num_start, num_inducing, 
-    theta_init, phi, ncand=10000, verbose=verbose)
+    theta_init, phi, ncand=ncand, verbose=verbose, 
+    count_random_max=count_random_max, max_obj_tol=max_obj_tol)
 cfwd = spline_fit(ufwd, train_x, train_y, theta_init, phi, sigma=sigma)
 r = rms_vs_truth(ufwd, cfwd, theta_init, phi, test_x, test_y)
 print(f"Using {method}, RMS: {r}, norm(c): {torch.norm(cfwd)}")
-store(obj_name, method, num_inducing, cfwd, ufwd, theta_init, phi, sigma, expid=expid)
+store(obj_name, method, num_inducing, cfwd, ufwd, theta_init, phi, sigma, expid=expid, args=args)
 
 # LM
 def fproj_test(u, theta):
@@ -120,7 +131,7 @@ ulm, thetalm, norm_hist = levenberg_marquardt(fproj_test, Jproj_test, ufwd, thet
 clm = spline_fit(ulm, train_x, train_y, thetalm, phi, sigma=sigma)
 r = rms_vs_truth(ulm, clm, thetalm, phi, test_x, test_y)
 print(f"Uisng {method}, RMS: {r}, norm(c): {torch.norm(clm)}")
-store(obj_name, method, num_inducing, clm, ulm, thetalm, phi, sigma, expid=expid)
+store(obj_name, method, num_inducing, clm, ulm, thetalm, phi, sigma, expid=expid, args=args)
 
 
 
