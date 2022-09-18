@@ -3,6 +3,7 @@ import sys
 import math
 import argparse
 import numpy as np
+import time 
 
 sys.path.append("../src")
 sys.path.append("../src/opt")
@@ -80,16 +81,20 @@ args["lm_nsteps"] = lm_nsteps
 args["fwd_num_start"] = fwd_num_start
 args["ncand"] = ncand
 args["count_random_max"] = count_random_max
-verbose=True
+verbose=False
 
 # Forward regression 
 method = "fwd"
+start = time.time()
 ufwd = spline_forward_regression(train_x, train_y, fwd_num_start, num_inducing, 
     theta_init, phi, ncand=ncand, verbose=verbose, 
     count_random_max=count_random_max, max_obj_tol=max_obj_tol)
 cfwd = spline_fit(ufwd, train_x, train_y, theta_init, phi, sigma=sigma)
+end = time.time()
+time_fwd = end-start
+args["time"] = time_fwd
 r = rms_vs_truth(ufwd, cfwd, theta_init, phi, test_x, test_y)
-print(f"Using {method}, RMS: {r}, norm(c): {torch.norm(cfwd)}")
+print(f"Using {method}, RMS: {r:.4f}, norm(c): {torch.norm(cfwd):.2f}, time cost: {time_fwd:.2f} sec.")
 store(obj_name, method, num_inducing, cfwd, ufwd, theta_init, phi, sigma, expid=expid, args=args)
 
 # LM
@@ -126,11 +131,14 @@ if theta_penalty > 0:
         return torch.cat([J, t.reshape(1,-1)], dim=0)
 
 method = "lm"
+start = time.time()
 ulm, thetalm, norm_hist = levenberg_marquardt(fproj_test, Jproj_test, ufwd, theta_init,
     rtol=rtol, tau=tau, nsteps=lm_nsteps)
 clm = spline_fit(ulm, train_x, train_y, thetalm, phi, sigma=sigma)
+time_lm = end-start
+args["time"] = time_lm
 r = rms_vs_truth(ulm, clm, thetalm, phi, test_x, test_y)
-print(f"Uisng {method}, RMS: {r}, norm(c): {torch.norm(clm)}")
+print(f"Uisng {method}, RMS: {r:.4f}, norm(c): {torch.norm(clm):.2f}, time cost: {time_lm:.2f} sec.")
 store(obj_name, method, num_inducing, clm, ulm, thetalm, phi, sigma, expid=expid, args=args)
 
 

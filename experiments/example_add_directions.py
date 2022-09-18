@@ -67,7 +67,7 @@ if device == "cuda":
 print(f"Dataset: {obj_name}, train_n: {train_n}, test_n:{test_n}, num_inducing: {num_inducing}.")
 
 # read results
-res = pkl.load(open(f'../data/{obj_name}-{dim}_{method}_m{num_inducing}_{expid}.pkl', 'rb'))
+res = pkl.load(open(f'../results/{obj_name}-{dim}_{method}_m{num_inducing}_{expid}.pkl', 'rb'))
 u = res["u"].to(device=train_x.device)
 c = res["c"].to(device=train_x.device)
 theta = res["theta"]
@@ -88,7 +88,8 @@ V, idx_to_remove, num_directions = generate_directions(u.cpu(), q=q)
 u2, V2 = re_index(u, V, idx_to_remove)
 
 # check new fitting results with directions
-u2 = torch.tensor(u2).to(device=train_x.device)
+# u2 = torch.tensor(u2).to(device=train_x.device)
+u2 = u2.to(device=train_x.device)
 c2 = spline_fit(u2, train_x, train_y, theta, phi, sigma=sigma, V=V2)
 r = rms_vs_truth(u2, c2, theta, phi, test_x, test_y, V=V2)
 print(f"Adding {num_directions} directions, RMS: {r}, norm(c): {torch.norm(c2)}")
