@@ -2,3 +2,4 @@
 *.pkl
 *.ipynb
 svgp_evaluation/wandb
+data
