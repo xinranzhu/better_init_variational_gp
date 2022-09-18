@@ -29,7 +29,7 @@ def store(obj_name, method_name, npoints, c, u, theta, phi, sigma,
     if args:
         res.update(args)
 
-    path = f'../data/{obj_name}-{dim}_{method_name}_m{npoints}_{expid}.pkl'
+    path = f'../results/{obj_name}-{dim}_{method_name}_m{npoints}_{expid}.pkl'
     pkl.dump(res, open(path, 'wb'))
     print("Results saved to ", path)
 
