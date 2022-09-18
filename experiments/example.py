@@ -4,7 +4,7 @@ import math
 import argparse
 import numpy as np
 import time 
-
+import pickle as pkl
 sys.path.append("../src")
 sys.path.append("../src/opt")
 from splines import spline_K, Dspline_K, spline_fit, rms_vs_truth, spline_eval
@@ -85,17 +85,23 @@ verbose=False
 
 # Forward regression 
 method = "fwd"
-start = time.time()
-ufwd = spline_forward_regression(train_x, train_y, fwd_num_start, num_inducing, 
-    theta_init, phi, ncand=ncand, verbose=verbose, 
-    count_random_max=count_random_max, max_obj_tol=max_obj_tol)
-cfwd = spline_fit(ufwd, train_x, train_y, theta_init, phi, sigma=sigma)
-end = time.time()
-time_fwd = end-start
-args["time"] = time_fwd
-r = rms_vs_truth(ufwd, cfwd, theta_init, phi, test_x, test_y)
-print(f"Using {method}, RMS: {r:.4f}, norm(c): {torch.norm(cfwd):.2f}, time cost: {time_fwd:.2f} sec.")
-store(obj_name, method, num_inducing, cfwd, ufwd, theta_init, phi, sigma, expid=expid, args=args)
+# try load 
+try: 
+    res = pkl.load(open(f'../results/{obj_name}-{dim}_fwd_m{num_inducing}_{expid}.pkl', 'rb'))
+    ufwd = res["u"]
+    print("Loaded fwd results")
+except:
+    start = time.time()
+    ufwd = spline_forward_regression(train_x, train_y, fwd_num_start, num_inducing, 
+        theta_init, phi, ncand=ncand, verbose=verbose, 
+        count_random_max=count_random_max, max_obj_tol=max_obj_tol)
+    cfwd = spline_fit(ufwd, train_x, train_y, theta_init, phi, sigma=sigma)
+    end = time.time()
+    time_fwd = end-start
+    args["time"] = time_fwd
+    r = rms_vs_truth(ufwd, cfwd, theta_init, phi, test_x, test_y)
+    print(f"Using {method}, RMS: {r:.4f}, norm(c): {torch.norm(cfwd):.2f}, time cost: {time_fwd:.2f} sec.")
+    store(obj_name, method, num_inducing, cfwd, ufwd, theta_init, phi, sigma, expid=expid, args=args)
 
 # LM
 def fproj_test(u, theta):
