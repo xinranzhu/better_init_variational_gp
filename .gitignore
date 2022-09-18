@@ -3,3 +3,5 @@
 *.ipynb
 svgp_evaluation/wandb
 data
+slurm_output
+*.sh

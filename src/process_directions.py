@@ -24,9 +24,9 @@ def generate_directions(u, q=0.015):
     '''
     m, dim = u.shape
     pair_dist = spatial.distance.pdist(u, metric="euclidean")
-    eps = np.quantile(pair_dist,0.01)
+    eps = min(np.quantile(pair_dist,q), 0.01)
     clustering = DBSCAN(eps=eps, min_samples=2).fit(u)
-
+    print("eps = ", eps)
     num_clusters = max(clustering.labels_) + 1
     pairs = []
     for i in range(num_clusters):
