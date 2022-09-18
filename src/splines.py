@@ -1,13 +1,15 @@
 import torch
 import math
+import numpy as np
 
 def spline_K(x, u, theta, phi, V=None):
+    m,d = u.shape
+    n,d = x.shape
+    R = u.reshape(1,m,d)-x.reshape(n,1,d)
+    NR = torch.norm(R, dim=2)
+    Kxu = phi(NR, theta=theta)
     if V is None: # no directions
-        m,d = u.shape
-        n,d = x.shape
-        R = u.reshape(1,m,d)-x.reshape(n,1,d)
-        NR = torch.norm(R, dim=2)
-        return phi(NR, theta=theta)
+        return Kxu
     else:
         # compute Kxu where u has some directions.
         Kxu2 = torch.empty((n, 0)).to(x.device).to(device=x.device)
