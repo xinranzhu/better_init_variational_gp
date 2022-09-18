@@ -116,7 +116,9 @@ class SVGP_exp(Experiment):
             mll_type=mll_type,
             device=self.device,
             tracker=self.tracker,
-            use_ngd=self.use_ngd, ngd_lr=self.ngd_lr)
+            use_ngd=self.use_ngd, ngd_lr=self.ngd_lr,
+            save_model=self.save_model,
+            save_path=self.save_path + f'_{wandb.run.name}')
 
         if self.save_model:
             save_path = self.save_path + f'_{wandb.run.name}'

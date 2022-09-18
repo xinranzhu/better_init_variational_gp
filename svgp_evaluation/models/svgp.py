@@ -60,6 +60,7 @@ def train_gp(model, likelihood, train_x, train_y,
     mll_type="ELBO",
     device="cpu", tracker=None, 
     use_ngd=False, ngd_lr=0.1,
+    save_model=True, save_path=None,
     ):
     
     train_dataset = TensorDataset(train_x, train_y)
@@ -139,9 +140,12 @@ def train_gp(model, likelihood, train_x, train_y,
                 "training_rmse": rmse,
                 "training_nll": nll,     
             })
-        if i % 100 == 0:
+        if i % 10 == 0:
             print(f"Epoch: {i}, loss: {loss.item()}, nll: {nll}, rmse: {rmse}")
             sys.stdout.flush()
+            if save_model:
+                torch.save(model.state_dict(), f'{save_path}_{i}.model')
+
     end = time.time()
     training_time = end - start
     if tracker is not None:

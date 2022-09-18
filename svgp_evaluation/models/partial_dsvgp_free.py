@@ -187,12 +187,11 @@ def train_gp(model, likelihood, train_x, train_y,
           "training_rmse": rmse,
           "training_nll": nll,     
       })
-    if i % 100 == 0:
+    if i % 10 == 0:
       print(f"Epoch: {i}; total_step: {total_step}, loss: {loss.item()}, nll: {nll}")
       sys.stdout.flush()
       if save_model:
-        torch.save(model.state_dict(), f'{save_path}.model')
-        torch.save(model.state_dict(), f'{save_path}.likelihood')
+        torch.save(model.state_dict(), f'{save_path}_{i}.model')
         print("Model saved to ", save_path)
       
   end = time.time()

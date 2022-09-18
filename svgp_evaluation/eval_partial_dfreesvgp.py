@@ -144,8 +144,13 @@ class PartialDfreeSVGP_exp(Experiment):
             tracker=self.tracker,
             use_ngd=self.use_ngd, ngd_lr=self.ngd_lr,
             save_model=self.save_model,
-            save_path=f'self.save_path'+'_{wandb.run.name}')
-           
+            save_path='self.save_path'+f'_{wandb.run.name}')
+        
+        if self.save_model:
+            save_path = self.save_path + f'_{wandb.run.name}'
+            torch.save(self.model.state_dict(), f'{save_path}.model')
+            print("Finish training, model saved to ", save_path)
+            
         return self
 
     def eval(self, step=99999):
