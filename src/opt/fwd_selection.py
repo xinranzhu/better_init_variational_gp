@@ -1,5 +1,6 @@
 import torch
 from splines import spline_K
+from sklearn.cluster import KMeans
 
 # given data points x and existing residual r, 
 # compute projected residual with the new points u 
@@ -24,10 +25,15 @@ def gd(u0, obj, obj_grad, lr, nstep):
     return u
 
 def spline_forward_regression(xx, y, kstart, kend, 
-    theta, phi, lr=0.1, nstep=10, ncand=100, nsamples=10000, verbose=False):
+    theta, phi, lr=0.1, nstep=10, 
+    ncand=100, nsamples=10000, 
+    max_obj_tol=1e-6, count_random_max=10,
+    device="cpu", verbose=False):
+    torch.set_default_dtype(torch.float64) 
 
-    if verbose:
-        print("spline_forward_regression on going...")
+    if device == "cuda":
+        xx = xx.cuda()
+        y = y.cuda()
 
     n, d = xx.shape
     u_cur = torch.clone(xx[:kstart, :])
@@ -40,17 +46,38 @@ def spline_forward_regression(xx, y, kstart, kend,
     mask[:kstart] = False
     idx = torch.arange(n, dtype=int)
     idx_selected = list(range(kstart))
+    count_random = 0
     for k in range(kstart,kend):
+        if count_random > count_random_max:
+            if verbose:
+                print("select the rest by kmeans")
+            res = KMeans(n_clusters=kend-k).fit(xx[mask].cpu().numpy())
+            ufwd2 = torch.tensor(res.cluster_centers_, device=u_cur.device)
+            return torch.cat([u_cur, ufwd2], dim=0)
+
         # subsamle_id = torch.randperm(m)[:nsamples]
         def obj(u):
-            return -projected_residual(u, xx, theta, phi, r)[0]
-        # for continuous version
+            return projected_residual(u, xx, theta, phi, r)[0]
         def obj_grad(u):
-            return -projected_residual(u, xx, theta, phi, r)[1]
+            return projected_residual(u, xx, theta, phi, r)[1]
 
-        subsamle_id = torch.randperm(xx[mask,:].shape[0])[:min(ncand, xx[mask,:].shape[0])]
-        u0_idx = torch.argmin(torch.tensor([obj(u).item() for u in xx[mask,:][subsamle_id, :]])).item()
-        u0_idx_original = idx[mask][subsamle_id][u0_idx].item()
+        m2 = xx[mask,:].shape[0]
+        subsamle_id = torch.randperm(m2)[:ncand]
+        obj_vals = torch.tensor([obj(u).item() for u in xx[mask,:][subsamle_id, :]])
+        if max(obj_vals) < max_obj_tol:
+            if verbose:
+                print("select randomly")
+            count_random += 1
+            u0_idx = torch.randperm(m2)[0]
+            u0_idx_original = idx[mask][u0_idx]
+        else:
+            u0_idx = torch.argmax(obj_vals).item()
+            u0_idx_original = idx[mask][subsamle_id][u0_idx].item()
+
+        # obj_vals = torch.tensor([obj(u).item() for u in xx[mask,:]])
+        # u0_idx = torch.argmax(obj_vals).item()
+        # u0_idx_original = idx[mask][u0_idx].item()
+
         uselect = xx[u0_idx_original, :]
         mask[u0_idx_original] = False
         # uselect = gd(u0, obj, obj_grad, lr, nstep)
@@ -61,7 +88,10 @@ def spline_forward_regression(xx, y, kstart, kend,
         c = torch.linalg.lstsq(Kxu, y).solution
         r = y - torch.matmul(Kxu, c)
         if verbose:
-            print(f"The {k}th point selected at training index {u0_idx_original}.")
+            print(f"k={k}, u0_idx_original={u0_idx_original}, max_obj={max(obj_vals)}")
+        # print(f"obj_vals = ", torch.sort(obj_vals, descending=True)[0][:5])
+        # print(f"opt idx = ", torch.sort(obj_vals, descending=True)[1][:5])
+        # print("singular value of Kxu: ", torch.svd(Kxu).S)
     return u_cur
 
 
