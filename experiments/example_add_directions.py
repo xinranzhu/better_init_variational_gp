@@ -73,6 +73,8 @@ c = res["c"].to(device=train_x.device)
 theta = res["theta"]
 sigma = res["sigma"]
 
+q=0.01
+args["q"] = q
 
 
 # check previous fitting results without directions
@@ -82,7 +84,7 @@ print(f"Using {method}, RMS: {r}, norm(c): {torch.norm(c)}")
 
 
 # cluster detection 
-V, idx_to_remove, num_directions = generate_directions(u.cpu(), q=0.01)
+V, idx_to_remove, num_directions = generate_directions(u.cpu(), q=q)
 u2, V2 = re_index(u, V, idx_to_remove)
 
 # check new fitting results with directions
@@ -90,6 +92,9 @@ u2 = torch.tensor(u2).to(device=train_x.device)
 c2 = spline_fit(u2, train_x, train_y, theta, phi, sigma=sigma, V=V2)
 r = rms_vs_truth(u2, c2, theta, phi, test_x, test_y, V=V2)
 print(f"Adding {num_directions} directions, RMS: {r}, norm(c): {torch.norm(c2)}")
+store(obj_name, method, num_inducing, c2, u2, theta, phi, sigma, 
+    expid=expid, args=args, V=V2)
+
 
 
 
