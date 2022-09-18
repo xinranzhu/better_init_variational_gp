@@ -26,6 +26,7 @@ parser.add_argument("--expid", type=str, default="TEST")
 parser.add_argument("--kernel_type", type=str, default="SE")
 parser.add_argument("--num_inducing", type=int, default=50)
 parser.add_argument("--method", type=str, default="lm")
+parser.add_argument("--q", type=float, default=0.01)
 
 args =  vars(parser.parse_args())
 obj_name = args["obj_name"]
@@ -72,9 +73,7 @@ u = res["u"].to(device=train_x.device)
 c = res["c"].to(device=train_x.device)
 theta = res["theta"]
 sigma = res["sigma"]
-
-q=0.01
-args["q"] = q
+q=args["q"]
 
 
 # check previous fitting results without directions
