@@ -16,7 +16,7 @@ def get_cluster_idx(res, globla_idx):
     return groups
 
 # read dataset and fitting results
-def generate_directions(u, q=0.015):
+def generate_directions(u, q=0.015, eps=None, num_cut=None):
     
     '''
         Given points u::tensor, m by d, detect clusters 
@@ -24,7 +24,11 @@ def generate_directions(u, q=0.015):
     '''
     m, dim = u.shape
     pair_dist = spatial.distance.pdist(u, metric="euclidean")
-    eps = min(np.quantile(pair_dist,q), 0.01)
+    if eps is None:
+        if num_cut is not None:
+            eps = sorted(pair_dist)[num_cut]
+        else:
+            eps = np.quantile(pair_dist,q) 
     clustering = DBSCAN(eps=eps, min_samples=2).fit(u)
     print("eps = ", eps)
     num_clusters = max(clustering.labels_) + 1
