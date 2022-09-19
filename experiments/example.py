@@ -88,7 +88,7 @@ method = "fwd"
 # try load 
 try: 
     res = pkl.load(open(f'../results/{obj_name}-{dim}_fwd_m{num_inducing}_{expid}.pkl', 'rb'))
-    ufwd = res["u"]
+    ufwd = res["u"].to(device)
     print("Loaded fwd results")
 except:
     start = time.time()
