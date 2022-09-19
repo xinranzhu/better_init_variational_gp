@@ -60,7 +60,7 @@ if device == "cuda":
     train_x = train_x.cuda()
     train_y = train_y.cuda()
 
-print(f"Dataset: {obj_name}, train_n: {train_n}, test_n:{test_n}, num_inducing: {num_inducing}.")
+print(f"Dataset: {obj_name}, train_n: {train_n}  test_n:{test_n}  num_inducing: {num_inducing}.")
 
 theta_init = 2.0 
 sigma = 0.1
@@ -88,7 +88,7 @@ method = "fwd"
 # try load 
 try: 
     res = pkl.load(open(f'../results/{obj_name}-{dim}_fwd_m{num_inducing}_{expid}.pkl', 'rb'))
-    ufwd = res["u"].to(device)
+    ufwd = res["u"].to(device=train_x.device)
     print("Loaded fwd results")
 except:
     start = time.time()
@@ -100,7 +100,7 @@ except:
     time_fwd = end-start
     args["time"] = time_fwd
     r = rms_vs_truth(ufwd, cfwd, theta_init, phi, test_x, test_y)
-    print(f"Using {method}, RMS: {r:.4f}, norm(c): {torch.norm(cfwd):.2f}, time cost: {time_fwd:.2f} sec.")
+    print(f"Using {method}, RMS: {r:.4e}  norm(c): {torch.norm(cfwd):.2f}  time cost: {time_fwd:.2f} sec.")
     store(obj_name, method, num_inducing, cfwd, ufwd, theta_init, phi, sigma, expid=expid, args=args)
 
 # LM
@@ -145,7 +145,7 @@ end = time.time()
 time_lm = end-start
 args["time"] = time_lm
 r = rms_vs_truth(ulm, clm, thetalm, phi, test_x, test_y)
-print(f"Uisng {method}, RMS: {r:.4f}, norm(c): {torch.norm(clm):.2f}, time cost: {time_lm:.2f} sec.")
+print(f"Uisng {method}, RMS: {r:.4e}  norm(c): {torch.norm(clm):.2f}  time cost: {time_lm:.2f} sec.")
 store(obj_name, method, num_inducing, clm, ulm, thetalm, phi, sigma, expid=expid, args=args)
 
 

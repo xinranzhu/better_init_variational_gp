@@ -6,6 +6,7 @@ import numpy as np
 import pickle as pkl
 from sklearn.cluster import DBSCAN
 from scipy import spatial
+import time 
 
 sys.path.append("../src")
 sys.path.append("../src/opt")
@@ -27,6 +28,8 @@ parser.add_argument("--kernel_type", type=str, default="SE")
 parser.add_argument("--num_inducing", type=int, default=50)
 parser.add_argument("--method", type=str, default="lm")
 parser.add_argument("--q", type=float, default=0.01)
+parser.add_argument("--num_cut", type=int, default=20)
+
 
 args =  vars(parser.parse_args())
 obj_name = args["obj_name"]
@@ -65,7 +68,7 @@ if device == "cuda":
     test_x = test_x.cuda()
     test_y = test_y.cuda()
 
-print(f"Dataset: {obj_name}, train_n: {train_n}, test_n:{test_n}, num_inducing: {num_inducing}.")
+print(f"Dataset: {obj_name}  train_n: {train_n}  test_n:{test_n}, num_inducing: {num_inducing}.")
 
 # read results
 res = pkl.load(open(f'../results/{obj_name}-{dim}_{method}_m{num_inducing}_{expid}.pkl', 'rb'))
@@ -74,24 +77,29 @@ c = res["c"].to(device=train_x.device)
 theta = res["theta"]
 sigma = res["sigma"]
 q=args["q"]
+num_cut=args["num_cut"]
 
 
 # check previous fitting results without directions
 c = spline_fit(u, train_x, train_y, theta, phi, sigma=sigma)
 r = rms_vs_truth(u, c, theta, phi, test_x, test_y)
-print(f"Using {method}, RMS: {r}, norm(c): {torch.norm(c)}")
+print(f"Using {method}, RMS: {r:.4e}  norm(c): {torch.norm(c):.2f}")
 
 
 # cluster detection 
-V, idx_to_remove, num_directions = generate_directions(u.cpu(), q=q)
+start = time.time()
+V, idx_to_remove, num_directions = generate_directions(u.cpu(), q=q, num_cut=num_cut)
 u2, V2 = re_index(u, V, idx_to_remove)
 
 # check new fitting results with directions
 # u2 = torch.tensor(u2).to(device=train_x.device)
 u2 = u2.to(device=train_x.device)
 c2 = spline_fit(u2, train_x, train_y, theta, phi, sigma=sigma, V=V2)
+end = time.time()
+time_cost = end-start
+args["time"] = time_cost
 r = rms_vs_truth(u2, c2, theta, phi, test_x, test_y, V=V2)
-print(f"Adding {num_directions} directions, RMS: {r}, norm(c): {torch.norm(c2)}")
+print(f"Adding {num_directions} directions  RMS: {r:.4e}  norm(c): {torch.norm(c2):.2f} time_cost: {time_cost:.2f} sec.")
 store(obj_name, method, num_inducing, c2, u2, theta, phi, sigma, 
     expid=expid, args=args, V=V2)
 

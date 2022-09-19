@@ -79,6 +79,9 @@ def train_gp(model, likelihood, train_x, train_y,
     use_ngd=False, ngd_lr=0.1,
     save_model=False,
     save_path=None,
+    test_x=None, 
+    test_y=None,
+    val_x=None, val_y=None,
   ):
   """Train a Derivative GP with the Directional Derivative
   Variational Inference method
@@ -154,6 +157,8 @@ def train_gp(model, likelihood, train_x, train_y,
 
   total_step=0
   start = time.time()
+  min_val_rmse = float("Inf")
+  min_val_nll = float("Inf")
   for i in range(num_epochs):
     for x_batch, y_batch in train_loader:
       if device == "cuda":
@@ -186,12 +191,21 @@ def train_gp(model, likelihood, train_x, train_y,
           "loss": loss.item(), 
           "training_rmse": rmse,
           "training_nll": nll,     
-      })
-    if i % 10 == 0:
+      }, step=i)
+    if i % 50 == 0:
+      min_val_rmse, min_val_nll = val_gp(model, likelihood, val_x, val_y,num_directions,
+                test_batch_size=1024, device=device, tracker=tracker, step=i, 
+                min_val_rmse=min_val_rmse, min_val_nll=min_val_nll
+                )
+      _, _, _, _, _ = eval_gp(model, likelihood, test_x, test_y,num_directions,
+                test_batch_size=1024, device=device, tracker=tracker, step=i)
+      model.train()
+      likelihood.train()
       print(f"Epoch: {i}; total_step: {total_step}, loss: {loss.item()}, nll: {nll}")
       sys.stdout.flush()
       if save_model:
-        torch.save(model.state_dict(), f'{save_path}_{i}.model')
+        state = {"model": model.state_dict(), "epoch": i}
+        torch.save(state, f'{save_path}_{i}.model')
         print("Model saved to ", save_path)
       
   end = time.time()
@@ -261,3 +275,67 @@ def eval_gp(model,likelihood,
   print(f"Done testing! rmse: {rmse:.2e}, nll: {nll:.2e}, time: {testing_time:.2e} sec.")
   
   return means, variances, rmse, nll, testing_time
+
+
+def val_gp(model,likelihood,
+    val_x, val_y,
+    num_directions=1, test_batch_size=1024,
+    device='cpu', tracker=None, step=0,
+    min_val_rmse=None, min_val_nll=None):
+
+  
+  val_dataset = TensorDataset(val_x, val_y)
+  val_loader = DataLoader(val_dataset, batch_size=test_batch_size, shuffle=False)
+  dim = len(val_dataset[0][0])    
+
+  if device == "cuda":
+    model = model.to(device=torch.device("cuda"))
+    likelihood = likelihood.to(device=torch.device("cuda"))
+  model.eval()
+  likelihood.eval()
+  
+  kwargs = {}
+  means = torch.tensor([0.])
+  variances = torch.tensor([0.])
+  start = time.time()
+  num_derivative_directions = 1
+  with torch.no_grad():
+    for x_batch, _ in val_loader:
+      # redo derivative directions b/c batch size is not consistent
+    #   derivative_directions = torch.eye(dim)[:num_directions]
+      derivative_directions = torch.zeros((num_derivative_directions, dim)) 
+      for i in range(num_derivative_directions):
+          derivative_directions[i,i] = 1
+      derivative_directions = derivative_directions.repeat(len(x_batch),1)
+      if device == "cuda":
+        x_batch = x_batch.cuda()
+        derivative_directions = derivative_directions.cuda()
+
+      kwargs['derivative_directions'] = derivative_directions
+      # predict
+      preds = likelihood(model(x_batch,**kwargs))
+      if device == "cuda":
+        means = torch.cat([means, preds.mean.cpu()])
+        variances = torch.cat([variances, preds.variance.cpu()])
+      else:
+        means = torch.cat([means, preds.mean])
+        variances = torch.cat([variances, preds.variance])
+  end = time.time()
+  testing_time = end - start
+  means = means[1:]
+  variances = variances[1:]
+  rmse = torch.mean((means - val_y.cpu())**2).sqrt()
+  nll = -torch.distributions.Normal(means, variances.sqrt()).log_prob(val_y.cpu()).mean()
+  min_val_nll = min(min_val_nll, nll)
+  min_val_rmse = min(min_val_rmse, rmse)
+  if tracker is not None:
+    tracker.log({
+        "val_rmse": min_val_rmse, 
+        "val_nll": min_val_nll,
+    }, step=step)
+  
+  return min_val_rmse, min_val_nll 
+
+
+  
+  
