@@ -7,7 +7,7 @@ import random
 import torch
 import gpytorch
 import pickle as pkl
-sys.path.append("./gps")
+sys.path.append("./models")
 from dsvgp_free import GPModel, get_inducing_points, get_inducing_directions, train_gp, eval_gp
 from svgp_utils import meshgrid_uniform
 from eval_experiment import Experiment

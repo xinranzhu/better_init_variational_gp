@@ -6,7 +6,7 @@ import sys
 import torch
 import gpytorch
 import pickle as pkl
-sys.path.append("./gps")
+sys.path.append("./models")
 from gp import ExactGPModel, train_gp, eval_gp
 from svgp_utils import meshgrid_uniform
 from eval_experiment import Experiment
