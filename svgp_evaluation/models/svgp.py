@@ -11,7 +11,6 @@ from torch.utils.data import TensorDataset, DataLoader
 class GPModel(ApproximateGP):
     def __init__(self, inducing_points, kernel_type='se', 
         learn_inducing_locations=True, 
-        inducing_values_prior=None,
         use_ngd=False,
         ):
         if use_ngd:
@@ -24,8 +23,7 @@ class GPModel(ApproximateGP):
         #                                            learn_inducing_locations=learn_inducing_locations)
         variational_strategy = VariationalStrategy(self, inducing_points, 
                                                    variational_distribution, 
-                                                   learn_inducing_locations=learn_inducing_locations,
-                                                   inducing_values_prior=inducing_values_prior)
+                                                   learn_inducing_locations=learn_inducing_locations)
         super(GPModel, self).__init__(variational_strategy)
         self.mean_module = gpytorch.means.ConstantMean()
         self.likelihood = gpytorch.likelihoods.GaussianLikelihood()
@@ -61,6 +59,8 @@ def train_gp(model, likelihood, train_x, train_y,
     device="cpu", tracker=None, 
     use_ngd=False, ngd_lr=0.1,
     save_model=True, save_path=None,
+    test_x=None, test_y=None,
+    val_x=None, val_y=None,
     ):
     
     train_dataset = TensorDataset(train_x, train_y)
@@ -115,6 +115,8 @@ def train_gp(model, likelihood, train_x, train_y,
         mll = gpytorch.mlls.PredictiveLogLikelihood(likelihood, model, num_data=train_y.size(0))
 
     start = time.time()
+    min_val_rmse = float("Inf")
+    min_val_nll = float("Inf")
     for i in range(num_epochs):
         for x_batch, y_batch in train_loader:
             if device == "cuda":
@@ -138,13 +140,22 @@ def train_gp(model, likelihood, train_x, train_y,
             tracker.log({
                 "loss": loss.item(), 
                 "training_rmse": rmse,
-                "training_nll": nll,     
-            })
-        if i % 10 == 0:
+                "training_nll": nll,    
+            }, step=i)
+        if i % 50 == 0:
+            min_val_rmse, min_val_nll = val_gp(model, likelihood, val_x, val_y,
+                test_batch_size=1024, device=device, tracker=tracker, step=i, 
+                min_val_rmse=min_val_rmse, min_val_nll=min_val_nll
+                )
+            _, _, _, _, _ = eval_gp(model, likelihood, test_x, test_y,
+                test_batch_size=1024, device=device, tracker=tracker, step=i)
+            model.train()
+            likelihood.train()
             print(f"Epoch: {i}, loss: {loss.item()}, nll: {nll}, rmse: {rmse}")
             sys.stdout.flush()
             if save_model:
-                torch.save(model.state_dict(), f'{save_path}_{i}.model')
+                state = {"model": model.state_dict(), "epoch": i}
+                torch.save(state, f'{save_path}.model')
 
     end = time.time()
     training_time = end - start
@@ -195,3 +206,48 @@ def eval_gp(model, likelihood, test_x, test_y,
             "testing_time": testing_time 
         }, step=step)
     return means, variances, rmse, nll, testing_time
+
+
+
+
+def val_gp(model, likelihood, val_x, val_y,
+    test_batch_size=1024, device="cpu", tracker=None, step=0,
+    min_val_rmse=None, min_val_nll=None):
+
+    val_dataset = TensorDataset(val_x, val_y)
+    val_loader = DataLoader(val_dataset, batch_size=test_batch_size, shuffle=False)
+
+    if device == "cuda":
+        model = model.to(device=torch.device("cuda"))
+        likelihood = likelihood.to(device=torch.device("cuda"))
+
+    model.eval()
+    likelihood.eval()
+    means = torch.tensor([0.])
+    variances = torch.tensor([0.])
+
+    with torch.no_grad():
+        for x_batch, _ in val_loader:
+            if device == "cuda":
+                x_batch = x_batch.cuda()
+            preds = likelihood(model(x_batch))
+            if device == "cuda":
+                means = torch.cat([means, preds.mean.cpu()])
+                variances = torch.cat([variances, preds.variance.cpu()])
+            else:
+                means = torch.cat([means, preds.mean])
+                variances = torch.cat([variances, preds.variance])
+
+    means = means[1:]
+    variances = variances[1:]
+    
+    rmse = torch.mean((means - val_y.cpu())**2).sqrt()
+    nll = -torch.distributions.Normal(means, variances.sqrt()).log_prob(val_y.cpu()).mean()
+    min_val_nll = min(min_val_nll, nll)
+    min_val_rmse = min(min_val_rmse, rmse)
+    if tracker is not None:
+        tracker.log({
+            "val_rmse": min_val_rmse, 
+            "val_nll": min_val_nll,
+        }, step=step)
+    return min_val_rmse, min_val_nll 
