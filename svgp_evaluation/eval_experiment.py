@@ -15,7 +15,7 @@ except ModuleNotFoundError:
 class Experiment(object):
     def __init__(self, obj_name="3droad", dim=1,
                 model="GP",
-                wandb_project_name='better_init_variational_GP', 
+                wandb_project_name='better_init_variational_GP2', 
                 wandb_entity="xinranzhu", 
                 use_gpu=True, wandb=True):
 
@@ -33,12 +33,20 @@ class Experiment(object):
         y_truth = np.loadtxt(f'../data/{obj_name}-{dim}_y_truth.csv', delimiter=",",dtype='float')
         self.dim = dim
         self.obj_name = obj_name
+        self.train_n = xx_data.shape[0]
         self.train_x = torch.tensor(xx_data)
         self.train_y = torch.tensor(y_data)
-        self.test_x = torch.tensor(xx_truth)
-        self.test_y = torch.tensor(y_truth)
-        self.train_n = self.train_x.shape[0]
-        self.test_n = self.test_x.shape[0]
+        
+
+        # split out a validation set
+        test_n = int(xx_truth.shape[0]*2/3)
+        val_n = xx_truth.shape[0] - test_n
+        self.test_n = test_n
+        self.val_n = val_n
+        self.val_x = torch.tensor(xx_truth)[:val_n]
+        self.val_y = torch.tensor(y_truth)[:val_n]
+        self.test_x = torch.tensor(xx_truth)[val_n:]
+        self.test_y = torch.tensor(y_truth)[val_n:]
         
         self.method_args = {}
         self.method_args['init'] = locals()

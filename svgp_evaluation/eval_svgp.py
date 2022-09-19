@@ -54,7 +54,7 @@ class SVGP_exp(Experiment):
             kmeans = KMeans(n_clusters=num_inducing, random_state=0).fit(xk)
             u0 = kmeans.cluster_centers_
         else: # method = "fwd", "lm" or "tr_newton"
-            res = pkl.load(open(f"../data/{self.obj_name}-{self.dim}_{init_method}_m{m}_{init_expid}.pkl", "rb"))
+            res = pkl.load(open(f"../results/{self.obj_name}-{self.dim}_{init_method}_m{m}_{init_expid}.pkl", "rb"))
             u0 = res["u"]
             c = res["c"]
             sigma = res["sigma"]
@@ -96,12 +96,6 @@ class SVGP_exp(Experiment):
         del self.method_args['train']['self']
         self.track_run()
 
-        # eval before training
-        means, variances, rmse, test_nll, testing_time = eval_gp(
-            self.model, self.likelihood, 
-            self.test_x, self.test_y, 
-            device=self.device,
-            tracker=self.tracker, step=0)
 
         self.model, self.likelihood, _, = train_gp(
             self.model, self.likelihood, 
@@ -118,11 +112,14 @@ class SVGP_exp(Experiment):
             tracker=self.tracker,
             use_ngd=self.use_ngd, ngd_lr=self.ngd_lr,
             save_model=self.save_model,
-            save_path=self.save_path + f'_{wandb.run.name}')
+            save_path=self.save_path + f'_{wandb.run.name}',
+            test_x=self.test_x, test_y=self.test_y,
+            val_x=self.val_x, val_y=self.val_y)
 
         if self.save_model:
             save_path = self.save_path + f'_{wandb.run.name}'
-            torch.save(self.model.state_dict(), f'{save_path}.model')
+            state = {"model": self.model.state_dict(), "epoch": num_epochs}
+            torch.save(state, f'{save_path}.model')
             print("Finish training, model saved to ", save_path)
         return self
 
@@ -138,7 +135,7 @@ if __name__ == "__main__":
     fire.Fire(SVGP_exp)
 
 # use lm initialization
-# python eval_svgp.py --obj_name 3droad --dim 2 - init_hypers --num_inducing 50 --init_method lm --init_expid TEST - train --num_epochs 300 --lr 0.0005 --scheduler multistep --gamma 0.1 --train_batch_size 1024 --elbo_beta 0.1 --mll_type PLL - eval - done
+# python eval_svgp.py --obj_name 3droad --dim 2 - init_hypers --num_inducing 50 --init_method lm --init_expid TEST - train --num_epochs 300 --lr 0.0005 --scheduler multistep --gamma 0.1 --train_batch_size 1024 --elbo_beta 0.1 --mll_type PLL done
 
 # use kmeans initialization
-# python eval_svgp.py --obj_name 3droad --dim 2 - init_hypers --num_inducing 50 --init_method kmeans - train --num_epochs 300 --lr 0.01 --scheduler multistep --gamma 0.1 --train_batch_size 1024 --elbo_beta 1.0 --mll_type PLL - eval - done
+# python eval_svgp.py --obj_name 3droad --dim 2 - init_hypers --num_inducing 50 --init_method kmeans - train --num_epochs 300 --lr 0.01 --scheduler multistep --gamma 0.1 --train_batch_size 1024 --elbo_beta 1.0 --mll_type PLL done

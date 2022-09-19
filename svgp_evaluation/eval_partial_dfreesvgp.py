@@ -7,7 +7,7 @@ import random
 import torch
 import gpytorch
 import pickle as pkl
-sys.path.append("./gps")
+sys.path.append("./models")
 from partial_dsvgp_free import GPModel, get_inducing_points, get_inducing_directions, train_gp, eval_gp
 from svgp_utils import meshgrid_uniform
 from eval_experiment import Experiment
@@ -31,6 +31,7 @@ class PartialDfreeSVGP_exp(Experiment):
     def init_hypers(self, num_inducing=2, 
         init_method="random", 
         total_num_directions = 2,
+        init_expid='-',
         m=0,
         learn_inducing_locations=True, 
         use_ngd=False, ngd_lr=0.1,
@@ -71,15 +72,13 @@ class PartialDfreeSVGP_exp(Experiment):
             inducing_values_num[rand_index_with_direction] = 1
 
         elif init_method.startswith("lm") or init_method.startswith("tr_newton"):
-            u0 = np.loadtxt(f'../data/{self.obj_name}-{self.dim}_m{m}_u{init_method}.csv', delimiter=",",dtype='float').T
-            c = np.loadtxt(f'../data/{self.obj_name}-{self.dim}_m{m}_c{init_method}.csv', delimiter=",",dtype='float').T
-            theta = np.loadtxt(f'../data/{self.obj_name}-{self.dim}_m{m}_theta{init_method}.csv', delimiter=",",dtype='float').T
-            inducing_directions = np.loadtxt(f'../data/{self.obj_name}-{self.dim}_m{m}_V{init_method}.csv', delimiter=",",dtype='float')
-            inducing_values_num = np.loadtxt(f'../data/{self.obj_name}-{self.dim}_m{m}_inducing_values_num{init_method}.csv', delimiter=",",dtype='int')
-            noise = 0.1
-            u0 = torch.tensor(u0)
-            c = torch.tensor(c)
-            theta = torch.tensor(theta)
+            res = pkl.load(open(f"../results/{self.obj_name}-{self.dim}_{init_method}_m{m}_{init_expid}.pkl", "rb"))
+            u0 = res["u"]
+            c = res["c"]
+            sigma = res["sigma"]
+            theta = res["theta"]
+            inducing_directions = res["V_mat"]
+            inducing_values_num = res["inducing_values_num"]
             inducing_directions = torch.tensor(inducing_directions)
             inducing_values_num = torch.tensor(inducing_values_num)
             num_directions = inducing_values_num.max().item()
@@ -93,7 +92,7 @@ class PartialDfreeSVGP_exp(Experiment):
 
         if init_method.startswith("lm") or init_method.startswith("tr_newton"):
             hypers = {
-                'likelihood.noise_covar.noise': torch.tensor(noise).to(u0.device),
+                'likelihood.noise_covar.noise': torch.tensor(sigma).to(u0.device),
                 'covar_module.lengthscale': torch.tensor(theta).to(u0.device),
                 }
             if use_ngd:
@@ -121,14 +120,6 @@ class PartialDfreeSVGP_exp(Experiment):
         del self.method_args['train']['self']
         self.track_run()
 
-        means, variances, rmse, test_nll, testing_time = eval_gp(
-            self.model, self.likelihood, 
-            self.test_x, self.test_y, 
-            num_directions=self.num_directions,
-            test_batch_size=2048,
-            device=self.device,
-            tracker=self.tracker)
-
         self.model, self.likelihood, _, = train_gp(
             self.model, self.likelihood, 
             self.train_x, self.train_y, 
@@ -144,11 +135,14 @@ class PartialDfreeSVGP_exp(Experiment):
             tracker=self.tracker,
             use_ngd=self.use_ngd, ngd_lr=self.ngd_lr,
             save_model=self.save_model,
-            save_path='self.save_path'+f'_{wandb.run.name}')
+            save_path='self.save_path'+f'_{wandb.run.name}',
+            test_x=self.test_x, test_y=self.test_y,
+            val_x=self.val_x, val_y=self.val_y)
         
         if self.save_model:
             save_path = self.save_path + f'_{wandb.run.name}'
-            torch.save(self.model.state_dict(), f'{save_path}.model')
+            state = {"model": self.model.state_dict(), "epoch": num_epochs}
+            torch.save(state, f'{save_path}.model')
             print("Finish training, model saved to ", save_path)
             
         return self
