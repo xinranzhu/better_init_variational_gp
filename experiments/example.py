@@ -14,9 +14,6 @@ from levenberg_marquardt import levenberg_marquardt
 from kernels import SEKernel # TODO: add matern
 from utils import store
 
-torch.set_default_dtype(torch.float64) 
-torch.set_printoptions(precision=8)
-device = "cuda" if torch.cuda.is_available() else "cpu"
 
 # TODO: add more args
 parser = argparse.ArgumentParser(description="parse args")
@@ -25,6 +22,7 @@ parser.add_argument("--dim", type=int, default=2)
 parser.add_argument("--expid", type=str, default="TEST")
 parser.add_argument("--kernel_type", type=str, default="SE")
 parser.add_argument("--num_inducing", type=int, default=50)
+parser.add_argument("--seed", type=int, default=1234)
 
 args =  vars(parser.parse_args())
 obj_name = args["obj_name"]
@@ -32,6 +30,15 @@ dim = args["dim"]
 expid = args["expid"]
 kernel_type = args["kernel_type"]
 num_inducing = args["num_inducing"]
+seed = args["seed"]
+
+torch.set_default_dtype(torch.float64) 
+torch.set_printoptions(precision=8)
+device = "cuda" if torch.cuda.is_available() else "cpu"
+# get GPU type
+devices = [d for d in range(torch.cuda.device_count())]
+device_names = [torch.cuda.get_device_name(d) for d in devices]
+args["gpu"] = device_names
 
 # set kernel
 def phi(rho, theta):
@@ -49,13 +56,19 @@ train_x = np.loadtxt(f'../data/{obj_name}-{dim}_xx_data.csv', delimiter=",",dtyp
 test_x = np.loadtxt(f'../data/{obj_name}-{dim}_xx_truth.csv', delimiter=",",dtype='float')
 train_y = np.loadtxt(f'../data/{obj_name}-{dim}_y_data.csv', delimiter=",",dtype='float')
 test_y = np.loadtxt(f'../data/{obj_name}-{dim}_y_truth.csv', delimiter=",",dtype='float')
-train_x = torch.tensor(train_x)
-test_x = torch.tensor(test_x)
-train_y = torch.tensor(train_y)
-test_y = torch.tensor(test_y)
 train_n = train_x.shape[0]
 test_n = test_x.shape[0]
 
+X = np.concatenate([train_x, test_x], axis=0)
+y = np.concatenate([train_y, test_y], axis=0)
+Xy = np.concatenate([X,y.reshape(-1,1)], axis=1)
+np.random.seed(seed)
+np.random.shuffle(Xy)
+train_x = torch.tensor(Xy[:train_n,:-1])
+train_y = torch.tensor(Xy[:train_n,-1])
+test_x = torch.tensor(Xy[train_n:,:-1])
+test_y = torch.tensor(Xy[train_n:,-1])
+        
 if device == "cuda":
     train_x = train_x.cuda()
     train_y = train_y.cuda()
@@ -86,8 +99,9 @@ verbose=False
 # Forward regression 
 method = "fwd"
 # try load 
+print("args: ", args)
 try: 
-    res = pkl.load(open(f'../results/{obj_name}-{dim}_fwd_m{num_inducing}_{expid}.pkl', 'rb'))
+    res = pkl.load(open(f'../results/{obj_name}-{dim}_fwd_m{num_inducing}_{expid}_{seed}.pkl', 'rb'))
     ufwd = res["u"].to(device=train_x.device)
     print("Loaded fwd results")
 except:
@@ -100,6 +114,7 @@ except:
     time_fwd = end-start
     args["time"] = time_fwd
     r = rms_vs_truth(ufwd, cfwd, theta_init, phi, test_x, test_y)
+    args["r"] = r
     print(f"Using {method}, RMS: {r:.4e}  norm(c): {torch.norm(cfwd):.2f}  time cost: {time_fwd:.2f} sec.")
     store(obj_name, method, num_inducing, cfwd, ufwd, theta_init, phi, sigma, expid=expid, args=args)
 
@@ -145,6 +160,7 @@ end = time.time()
 time_lm = end-start
 args["time"] = time_lm
 r = rms_vs_truth(ulm, clm, thetalm, phi, test_x, test_y)
+args["r"] = r
 print(f"Uisng {method}, RMS: {r:.4e}  norm(c): {torch.norm(clm):.2f}  time cost: {time_lm:.2f} sec.")
 store(obj_name, method, num_inducing, clm, ulm, thetalm, phi, sigma, expid=expid, args=args)
 
