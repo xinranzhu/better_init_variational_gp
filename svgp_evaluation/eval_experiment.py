@@ -17,7 +17,7 @@ class Experiment(object):
                 model="GP",
                 wandb_project_name='better_init_variational_GP2', 
                 wandb_entity="xinranzhu", 
-                use_gpu=True, wandb=True):
+                use_gpu=True, wandb=True, seed=1234):
 
         torch.set_default_dtype(torch.double)
         self.dtype = torch.get_default_dtype()
@@ -31,22 +31,30 @@ class Experiment(object):
         xx_truth = np.loadtxt(f'../data/{obj_name}-{dim}_xx_truth.csv', delimiter=",",dtype='float')
         y_data = np.loadtxt(f'../data/{obj_name}-{dim}_y_data.csv', delimiter=",",dtype='float')
         y_truth = np.loadtxt(f'../data/{obj_name}-{dim}_y_truth.csv', delimiter=",",dtype='float')
+
         self.dim = dim
         self.obj_name = obj_name
+        self.seed = seed
         self.train_n = xx_data.shape[0]
-        self.train_x = torch.tensor(xx_data)
-        self.train_y = torch.tensor(y_data)
-        
-
-        # split out a validation set
         test_n = int(xx_truth.shape[0]*2/3)
         val_n = xx_truth.shape[0] - test_n
         self.test_n = test_n
         self.val_n = val_n
-        self.val_x = torch.tensor(xx_truth)[:val_n]
-        self.val_y = torch.tensor(y_truth)[:val_n]
-        self.test_x = torch.tensor(xx_truth)[val_n:]
-        self.test_y = torch.tensor(y_truth)[val_n:]
+
+        X = np.concatenate([xx_data, xx_truth], axis=0)
+        y = np.concatenate([y_data, y_truth], axis=0)
+        Xy = np.concatenate([X,y.reshape(-1,1)], axis=1)
+        # randomly shuffle the data
+        if seed > 0:
+            np.random.seed(seed)
+            np.random.shuffle(Xy)
+
+        self.train_x = torch.tensor(Xy[:self.train_n,:-1])
+        self.train_y = torch.tensor(Xy[:self.train_n,-1])
+        self.val_x = torch.tensor(Xy[self.train_n:,:-1])[:val_n]
+        self.val_y = torch.tensor(Xy[self.train_n:,-1])[:val_n]
+        self.test_x = torch.tensor(Xy[self.train_n:,:-1])[val_n:]
+        self.test_y = torch.tensor(Xy[self.train_n:,-1])[val_n:]
         
         self.method_args = {}
         self.method_args['init'] = locals()

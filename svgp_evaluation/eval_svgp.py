@@ -54,11 +54,13 @@ class SVGP_exp(Experiment):
             kmeans = KMeans(n_clusters=num_inducing, random_state=0).fit(xk)
             u0 = kmeans.cluster_centers_
         else: # method = "fwd", "lm" or "tr_newton"
-            res = pkl.load(open(f"../results/{self.obj_name}-{self.dim}_{init_method}_m{m}_{init_expid}.pkl", "rb"))
+            res = pkl.load(open(f"../results/{self.obj_name}-{self.dim}_{init_method}_m{m}_{init_expid}_{self.seed}.pkl", "rb"))
             u0 = res["u"]
             c = res["c"]
             sigma = res["sigma"]
             theta = res["theta"]
+            time_cost = res["time"]
+            print(f"Pretraining by {init_method} cost: {time_cost} sec.")
             assert u0.shape[0] == num_inducing and u0.shape[1] == self.dim
 
         u0 = torch.tensor(u0)
@@ -88,9 +90,9 @@ class SVGP_exp(Experiment):
         return self
 
     def train(self, lr=0.1, num_epochs=10, 
-        scheduler=None, gamma=0.3, 
+        scheduler="multistep", gamma=1.0, 
         train_batch_size=1024,
-        mll_type="ELBO", elbo_beta=0.1):
+        mll_type="PLL", elbo_beta=0.1):
 
         self.method_args['train'] = locals()
         del self.method_args['train']['self']
