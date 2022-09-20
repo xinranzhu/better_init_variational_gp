@@ -28,8 +28,9 @@ def store(obj_name, method_name, npoints, c, u, theta, phi, sigma,
     res["c"] = c.cpu()
     if args:
         res.update(args)
-
-    path = f'../results/{obj_name}-{dim}_{method_name}_m{npoints}_{expid}.pkl'
+     
+    seed = args["seed"]
+    path = f'../results/{obj_name}-{dim}_{method_name}_m{npoints}_{expid}_{seed}.pkl'
     pkl.dump(res, open(path, 'wb'))
     print("Results saved to ", path)
 
