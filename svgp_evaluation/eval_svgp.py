@@ -50,7 +50,7 @@ class SVGP_exp(Experiment):
             u0 = self.train_x[rand_index, :]
         elif init_method == "kmeans":
             from sklearn.cluster import KMeans
-            xk = self.train_x.numpy()
+            xk = self.train_x.cpu().numpy()
             kmeans = KMeans(n_clusters=num_inducing, random_state=0).fit(xk)
             u0 = kmeans.cluster_centers_
         else: # method = "fwd", "lm" or "tr_newton"

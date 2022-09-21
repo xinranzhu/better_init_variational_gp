@@ -24,7 +24,6 @@ parser.add_argument("--expid", type=str, default="TEST")
 parser.add_argument("--kernel_type", type=str, default="SE")
 parser.add_argument("--num_inducing", type=int, default=50)
 parser.add_argument("--seed", type=int, default=1234)
-parser.add_argument("--data_loader", type=int, default=0)
 parser.add_argument("--init", type=str, default="fwd")
 
 args =  vars(parser.parse_args())
@@ -57,7 +56,13 @@ def Dtheta_phi(rho, theta):
 
 
 # loda data
-if args["data_loader"] > 0:
+if obj_name in {"bike", "engergy", "protein"}:
+    # use old data
+    data_loader = 0
+else:
+    data_loader = 1
+
+if data_loader > 0:
     train_x, train_y, valid_x, valid_y, test_x, test_y = load_data(dataset=obj_name, device=device, seed=seed)
     train_n = train_x.shape[0]
     test_n = test_x.shape[0]

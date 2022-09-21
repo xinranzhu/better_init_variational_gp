@@ -21,7 +21,7 @@ class Experiment(object):
                 wandb_project_name='better_init_variational_GP-rerun-kin40k-elevator', 
                 wandb_entity="xinranzhu", 
                 use_gpu=True, wandb=True, seed=1234,
-                data_loader=True):
+                ):
 
         torch.set_default_dtype(torch.double)
         self.dtype = torch.get_default_dtype()
@@ -35,6 +35,12 @@ class Experiment(object):
         self.seed = seed
 
         # load training and testing data
+        if obj_name in {"bike", "engergy", "protein"}:
+            # use old data
+            data_loader = 0
+        else:
+            data_loader = 1
+
         if data_loader:
             self.train_x, self.train_y, self.val_x, self.val_y, self.test_x, self.test_y = load_data(dataset=obj_name, device=self.device, seed=seed)
             self.train_n = self.train_x.shape[0]
