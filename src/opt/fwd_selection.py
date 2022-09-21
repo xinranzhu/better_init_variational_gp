@@ -1,4 +1,5 @@
 import torch
+import sys
 from splines import spline_K
 from sklearn.cluster import KMeans
 
@@ -89,6 +90,7 @@ def spline_forward_regression(xx, y, kstart, kend,
         r = y - torch.matmul(Kxu, c)
         if k % 50 == 0:
             print(f"k={k}")
+            sys.stdout.flush()
         if verbose:
             print(f"k={k}, u0_idx_original={u0_idx_original}, max_obj={max(obj_vals)}")
         # print(f"obj_vals = ", torch.sort(obj_vals, descending=True)[0][:5])
