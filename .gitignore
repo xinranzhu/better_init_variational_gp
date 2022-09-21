@@ -7,4 +7,4 @@ data
 slurm_output
 *.sh
 svgp_evaluation/saved_models
-
+uci
