@@ -35,7 +35,7 @@ class Experiment(object):
         self.seed = seed
 
         # load training and testing data
-        if obj_name in {"bike", "engergy", "protein"}:
+        if obj_name in {"bike", "energy", "protein"}:
             # use old data
             data_loader = 0
         else:

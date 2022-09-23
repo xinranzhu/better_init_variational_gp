@@ -56,10 +56,14 @@ def Dtheta_phi(rho, theta):
 
 
 # loda data
-if obj_name in {"bike", "engergy", "protein"}:
+if obj_name in {"bike", "energy", "protein"}:
     # use old data
+    print("Using old data")
+    sys.stdout.flush()
     data_loader = 0
 else:
+    print("Using new data")
+    sys.stdout.flush()
     data_loader = 1
 
 if data_loader > 0:
@@ -175,7 +179,7 @@ if theta_penalty > 0:
         t[-1] = theta_penalty
         return torch.cat([J, t.reshape(1,-1)], dim=0)
 
-method = "lm"
+method = f"lm-{init}"
 start = time.time()
 ulm, thetalm, norm_hist = levenberg_marquardt(fproj_test, Jproj_test, u_init, theta_init,
     rtol=rtol, tau=tau, nsteps=lm_nsteps)
