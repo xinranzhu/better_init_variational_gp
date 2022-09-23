@@ -129,7 +129,7 @@ if init == "fwd":
         u_init = spline_forward_regression(train_x, train_y, fwd_num_start, num_inducing, 
             theta_init, phi, ncand=ncand, verbose=verbose, 
             count_random_max=count_random_max, max_obj_tol=max_obj_tol)
-else:
+elif init == "kmeans": 
     method="kmeans"
     xk = train_x.cpu().numpy()
     kmeans = KMeans(n_clusters=num_inducing, random_state=seed).fit(xk)
