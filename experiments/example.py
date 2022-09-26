@@ -24,7 +24,7 @@ parser.add_argument("--expid", type=str, default="TEST")
 parser.add_argument("--kernel_type", type=str, default="SE")
 parser.add_argument("--num_inducing", type=int, default=50)
 parser.add_argument("--seed", type=int, default=1234)
-parser.add_argument("--init", type=str, default="fwd")
+parser.add_argument("--init", type=str, default="kmeans")
 
 args =  vars(parser.parse_args())
 obj_name = args["obj_name"]
@@ -58,9 +58,10 @@ def Dtheta_phi(rho, theta):
 # loda data
 data_loader = 0 if obj_name in {"bike", "energy", "protein"} else 1
 if data_loader > 0:
-    train_x, train_y, valid_x, valid_y, test_x, test_y = load_data(dataset=obj_name, device=device, seed=seed)
+    train_x, train_y, valid_x, valid_y, test_x, test_y = load_data(dataset=obj_name, seed=seed)
+    dim = train_x.shape[1]
 else:
-    train_x, train_y, val_x, val_y, test_x, test_y = load_data_old(obj_name, dim, seed=seed, device=device)
+    train_x, train_y, val_x, val_y, test_x, test_y = load_data_old(obj_name, dim, seed=seed)
 if device == "cuda":
     train_x = train_x.cuda()
     train_y = train_y.cuda()
