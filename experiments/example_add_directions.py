@@ -12,21 +12,17 @@ sys.path.append("../src")
 sys.path.append("../src/opt")
 from splines import spline_K,spline_Kuu, spline_fit, rms_vs_truth, spline_eval
 from kernels import SEKernel # TODO: add matern
-from utils import store
+from utils import store, load_data, load_data_old
 from process_directions import generate_directions, re_index
 
-torch.set_default_dtype(torch.float64) 
-torch.set_printoptions(precision=8)
-device = "cuda" if torch.cuda.is_available() else "cpu"
-
-# TODO: add more args
 parser = argparse.ArgumentParser(description="parse_args")
 parser.add_argument("--obj_name", type=str, default="3droad")
 parser.add_argument("--dim", type=int, default=2)
 parser.add_argument("--expid", type=str, default="TEST")
 parser.add_argument("--kernel_type", type=str, default="SE")
 parser.add_argument("--num_inducing", type=int, default=50)
-parser.add_argument("--method", type=str, default="lm")
+parser.add_argument("--seed", type=int, default=1234)
+parser.add_argument("--method", type=str, default="lm-kmeans")
 parser.add_argument("--q", type=float, default=0.01)
 parser.add_argument("--num_cut", type=int, default=20)
 
@@ -38,6 +34,15 @@ expid = args["expid"]
 kernel_type = args["kernel_type"]
 num_inducing = args["num_inducing"]
 method = args["method"]
+seed = args["seed"]
+
+torch.set_default_dtype(torch.float64) 
+torch.set_printoptions(precision=8)
+device = "cuda" if torch.cuda.is_available() else "cpu"
+# get GPU type
+devices = [d for d in range(torch.cuda.device_count())]
+device_names = [torch.cuda.get_device_name(d) for d in devices]
+args["gpu"] = device_names
 
 # set kernel
 def phi(rho, theta):
@@ -51,16 +56,12 @@ def Dtheta_phi(rho, theta):
     return kernel.Dtheta_phi(rho)
 
 # loda data
-train_x = np.loadtxt(f'../data/{obj_name}-{dim}_xx_data.csv', delimiter=",",dtype='float')
-test_x = np.loadtxt(f'../data/{obj_name}-{dim}_xx_truth.csv', delimiter=",",dtype='float')
-train_y = np.loadtxt(f'../data/{obj_name}-{dim}_y_data.csv', delimiter=",",dtype='float')
-test_y = np.loadtxt(f'../data/{obj_name}-{dim}_y_truth.csv', delimiter=",",dtype='float')
-train_x = torch.tensor(train_x)
-test_x = torch.tensor(test_x)
-train_y = torch.tensor(train_y)
-test_y = torch.tensor(test_y)
-train_n = train_x.shape[0]
-test_n = test_x.shape[0]
+# loda data
+data_loader = 0 if obj_name in {"bike", "energy", "protein"} else 1
+if data_loader > 0:
+    train_x, train_y, valid_x, valid_y, test_x, test_y = load_data(dataset=obj_name, device=device, seed=seed)
+else:
+    train_x, train_y, val_x, val_y, test_x, test_y = load_data_old(obj_name, dim, seed=seed, device=device)
 
 if device == "cuda":
     train_x = train_x.cuda()
@@ -68,10 +69,10 @@ if device == "cuda":
     test_x = test_x.cuda()
     test_y = test_y.cuda()
 
-print(f"Dataset: {obj_name}  train_n: {train_n}  test_n:{test_n}, num_inducing: {num_inducing}.")
+print(f"Dataset: {obj_name}, train_n: {train_x.shape[0]}  test_n:{test_x.shape[0]}  num_inducing: {num_inducing}.")
 
 # read results
-res = pkl.load(open(f'../results/{obj_name}-{dim}_{method}_m{num_inducing}_{expid}.pkl', 'rb'))
+res = pkl.load(open(f'../results/{obj_name}-{dim}_{method}_m{num_inducing}_{expid}_{seed}.pkl', 'rb'))
 u = res["u"].to(device=train_x.device)
 c = res["c"].to(device=train_x.device)
 theta = res["theta"]
@@ -83,7 +84,7 @@ num_cut=args["num_cut"]
 # check previous fitting results without directions
 c = spline_fit(u, train_x, train_y, theta, phi, sigma=sigma)
 r = rms_vs_truth(u, c, theta, phi, test_x, test_y)
-print(f"Using {method}, RMS: {r:.4e}  norm(c): {torch.norm(c):.2f}")
+print(f"Using {method}, RMS: {r:.4e}, stored_r: {res['r']:.4e} norm(c): {torch.norm(c):.2f}.")
 
 
 # cluster detection 

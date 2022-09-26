@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import sys
 sys.path.append("../src")
-from utils import load_data
+from utils import load_data, load_data_old
 
 try:
     import fire
@@ -35,42 +35,14 @@ class Experiment(object):
         self.seed = seed
 
         # load training and testing data
-        if obj_name in {"bike", "energy", "protein"}:
-            # use old data
-            data_loader = 0
-        else:
-            data_loader = 1
-
+        data_loader = 0 if obj_name in {"bike", "energy", "protein"} else 1
         if data_loader:
             self.train_x, self.train_y, self.val_x, self.val_y, self.test_x, self.test_y = load_data(dataset=obj_name, device=self.device, seed=seed)
-            self.train_n = self.train_x.shape[0]
-            self.test_n = self.test_x.shape[0]
-            self.val_n = self.val_x.shape[0]
         else:
-            xx_data = np.loadtxt(f'../data/{obj_name}-{dim}_xx_data.csv', delimiter=",",dtype='float')
-            xx_truth = np.loadtxt(f'../data/{obj_name}-{dim}_xx_truth.csv', delimiter=",",dtype='float')
-            y_data = np.loadtxt(f'../data/{obj_name}-{dim}_y_data.csv', delimiter=",",dtype='float')
-            y_truth = np.loadtxt(f'../data/{obj_name}-{dim}_y_truth.csv', delimiter=",",dtype='float')
-            self.train_n = xx_data.shape[0]
-            test_n = int(xx_truth.shape[0]*2/3)
-            val_n = xx_truth.shape[0] - test_n
-            self.test_n = test_n
-            self.val_n = val_n
-
-            X = np.concatenate([xx_data, xx_truth], axis=0)
-            y = np.concatenate([y_data, y_truth], axis=0)
-            Xy = np.concatenate([X,y.reshape(-1,1)], axis=1)
-            # randomly shuffle the data
-            if seed > 0:
-                np.random.seed(seed)
-                np.random.shuffle(Xy)
-
-            self.train_x = torch.tensor(Xy[:self.train_n,:-1])
-            self.train_y = torch.tensor(Xy[:self.train_n,-1])
-            self.val_x = torch.tensor(Xy[self.train_n:,:-1])[:val_n]
-            self.val_y = torch.tensor(Xy[self.train_n:,-1])[:val_n]
-            self.test_x = torch.tensor(Xy[self.train_n:,:-1])[val_n:]
-            self.test_y = torch.tensor(Xy[self.train_n:,-1])[val_n:]
+            self.train_x, self.train_y, self.val_x, self.val_y, self.test_x, self.test_y = load_data_old(obj_name, dim, seed=seed)
+        self.train_n = self.train_x.shape[0]
+        self.test_n = self.test_x.shape[0]
+        self.val_n = self.val_x.shape[0]
         
         self.method_args = {}
         self.method_args['init'] = locals()

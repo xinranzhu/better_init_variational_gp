@@ -13,7 +13,7 @@ from spline_rproj import spline_Jproj, spline_rproj
 from fwd_selection import spline_forward_regression
 from levenberg_marquardt import levenberg_marquardt
 from kernels import SEKernel # TODO: add matern
-from utils import store, load_data
+from utils import store, load_data, load_data_old
 
 
 # TODO: add more args
@@ -56,42 +56,16 @@ def Dtheta_phi(rho, theta):
 
 
 # loda data
-if obj_name in {"bike", "energy", "protein"}:
-    # use old data
-    print("Using old data")
-    sys.stdout.flush()
-    data_loader = 0
-else:
-    print("Using new data")
-    sys.stdout.flush()
-    data_loader = 1
-
+data_loader = 0 if obj_name in {"bike", "energy", "protein"} else 1
 if data_loader > 0:
     train_x, train_y, valid_x, valid_y, test_x, test_y = load_data(dataset=obj_name, device=device, seed=seed)
-    train_n = train_x.shape[0]
-    test_n = test_x.shape[0]
 else:
-    train_x = np.loadtxt(f'../data/{obj_name}-{dim}_xx_data.csv', delimiter=",",dtype='float')
-    test_x = np.loadtxt(f'../data/{obj_name}-{dim}_xx_truth.csv', delimiter=",",dtype='float')
-    train_y = np.loadtxt(f'../data/{obj_name}-{dim}_y_data.csv', delimiter=",",dtype='float')
-    test_y = np.loadtxt(f'../data/{obj_name}-{dim}_y_truth.csv', delimiter=",",dtype='float')
-    train_n = train_x.shape[0]
-    test_n = test_x.shape[0]
-    X = np.concatenate([train_x, test_x], axis=0)
-    y = np.concatenate([train_y, test_y], axis=0)
-    Xy = np.concatenate([X,y.reshape(-1,1)], axis=1)
-    np.random.seed(seed)
-    np.random.shuffle(Xy)
-    train_x = torch.tensor(Xy[:train_n,:-1])
-    train_y = torch.tensor(Xy[:train_n,-1])
-    test_x = torch.tensor(Xy[train_n:,:-1])
-    test_y = torch.tensor(Xy[train_n:,-1])
-            
-    if device == "cuda":
-        train_x = train_x.cuda()
-        train_y = train_y.cuda()
-
-print(f"Dataset: {obj_name}, train_n: {train_n}  test_n:{test_n}  num_inducing: {num_inducing}.")
+    train_x, train_y, val_x, val_y, test_x, test_y = load_data_old(obj_name, dim, seed=seed, device=device)
+if device == "cuda":
+    train_x = train_x.cuda()
+    train_y = train_y.cuda()
+    
+print(f"Dataset: {obj_name}, train_n: {train_x.shape[0]}  test_n:{test_x.shape[0]}  num_inducing: {num_inducing}.")
 
 theta_init = 2.0 
 sigma = 0.1
@@ -118,14 +92,12 @@ verbose=False
 start=time.time()
 if init == "fwd": 
     method = "fwd"
-    # try load 
     print("args: ", args)
     try: 
         res = pkl.load(open(f'../results/{obj_name}-{dim}_fwd_m{num_inducing}_{expid}_{seed}.pkl', 'rb'))
         u_init = res["u"].to(device=train_x.device)
         print("Loaded fwd results")
     except:
-        start = time.time()
         u_init = spline_forward_regression(train_x, train_y, fwd_num_start, num_inducing, 
             theta_init, phi, ncand=ncand, verbose=verbose, 
             count_random_max=count_random_max, max_obj_tol=max_obj_tol)
