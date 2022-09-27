@@ -92,13 +92,15 @@ class SVGP_exp(Experiment):
     def train(self, lr=0.1, num_epochs=10, 
         scheduler="multistep", gamma=1.0, 
         train_batch_size=1024,
-        mll_type="PLL", elbo_beta=0.1):
+        mll_type="PLL", elbo_beta=0.1,
+        load_run=None):
 
         self.method_args['train'] = locals()
         del self.method_args['train']['self']
         self.track_run()
 
-
+        load_run_path = self.save_path + "_" + load_run + ".model" if load_run is not None else None
+        print("Loading previous run: ", load_run)
         self.model, self.likelihood, _, = train_gp(
             self.model, self.likelihood, 
             self.train_x, self.train_y, 
@@ -116,7 +118,8 @@ class SVGP_exp(Experiment):
             save_model=self.save_model,
             save_path=self.save_path + f'_{wandb.run.name}',
             test_x=self.test_x, test_y=self.test_y,
-            val_x=self.val_x, val_y=self.val_y)
+            val_x=self.val_x, val_y=self.val_y,
+            load_run_path=load_run_path)
 
         if self.save_model:
             save_path = self.save_path + f'_{wandb.run.name}'
