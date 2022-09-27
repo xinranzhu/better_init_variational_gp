@@ -214,7 +214,6 @@ class DirectionalGradVariationalStrategy(_VariationalStrategy):
         return MultivariateNormal(predictive_mean, predictive_covar)
 
     def __call__(self, x, prior=False, **kwargs):
-        print("__call__")
         if not self.updated_strategy.item() and not prior:
             with torch.no_grad():
                 # Get unwhitened p(u)
