@@ -4,9 +4,9 @@ from copy import deepcopy
 from telnetlib import X3PAD
 from termios import VT1
 import warnings
-
+import time
 import torch
-
+import pickle as pkl
 from gpytorch import settings
 from gpytorch.distributions import MultivariateNormal
 from gpytorch.lazy import DiagLazyTensor, MatmulLazyTensor, RootLazyTensor, SumLazyTensor, TriangularLazyTensor, delazify
@@ -66,9 +66,45 @@ class DirectionalGradVariationalStrategy(_VariationalStrategy):
         https://www.repository.cam.ac.uk/handle/1810/278022
     """
 
-    def __init__(self, model, inducing_points, inducing_directions, inducing_values_num, variational_distribution, learn_inducing_locations=True):
+    def __init__(self, model, inducing_points, inducing_directions, 
+        inducing_values_num, variational_distribution, 
+        learn_inducing_locations=True,
+    ):
         super().__init__(model, inducing_points, variational_distribution, learn_inducing_locations)
+        
+        self.num_inducing   = len(inducing_points)
         self.inducing_values_num = inducing_values_num
+        # get the inducing directions
+        self.num_directions = inducing_values_num.max().item()
+        # get inducing_values_idx
+        inducing_values_idx = []
+        for i in range(self.num_inducing):
+            cur_num_directions = inducing_values_num[i].item()
+            for j in range(self.num_directions):
+                idx = i*self.num_directions + j
+                if cur_num_directions > 0:
+                    inducing_values_idx.append(idx)
+                    cur_num_directions -= 1
+        self.inducing_values_idx = inducing_values_idx
+
+        # get selected_idx
+        # Example of index selection in covar matrix
+        # u1, u2-v1, u2, u3-v3
+        # full_directions = [0; 0; v1; v2; v3; 0]
+        # inducing_values_idx = [2 3 4]
+        # inducing_values_num = [0 2 1]
+        # selected index in matrix = [0 3 4 5 6 7] 
+        selected_idx = []
+        idx = 0
+        for i in range(self.num_inducing):
+            selected_idx.append(idx)
+            for j in range(1,1+max(inducing_values_num)):
+                idx += 1
+                if j <= inducing_values_num[i]:
+                    selected_idx.append(idx) 
+            idx += 1 
+        self.selected_idx = selected_idx
+
         self.register_buffer("updated_strategy", torch.tensor(True))
         self._register_load_state_dict_pre_hook(_ensure_updated_strategy_flag_set)
         self.register_parameter(name="inducing_directions", parameter=torch.nn.Parameter(inducing_directions.clone()))
@@ -92,90 +128,54 @@ class DirectionalGradVariationalStrategy(_VariationalStrategy):
         return res
 
     def forward(self, x, inducing_points, inducing_values, variational_inducing_covar=None, **kwargs):
-        # get the inducing directions
-        inducing_directions = self.inducing_directions
-        inducing_values_num = self.inducing_values_num
-        num_induc = inducing_points.size(-2)
-        dim = inducing_points.size(-1)
-        # num_directions = int(inducing_directions.size(-2)/num_induc)
-        num_directions = inducing_values_num.max().item()
-        # compute inducing_values_idx
-        inducing_values_idx = []
-        for i in range(num_induc):
-            cur_num_directions = inducing_values_num[i].item()
-            for j in range(num_directions):
-                idx = i*num_directions + j
-                if cur_num_directions > 0:
-                    inducing_values_idx.append(idx)
-                    cur_num_directions -= 1
-        derivative_directions = kwargs['derivative_directions']
-        num_data = x.size(-2)
-        num_derivative_directions = int(derivative_directions.size(-2)/num_data)
-        # assert num_derivative_directions == num_directions, "Need minibatch dim to be same as number of directions for kernel"
-        
+
         full_inputs = torch.cat([inducing_points,x],dim=-2)
         # predicts mean for each output
         test_mean = self.model.mean_module(x)  
 
+
         # inducing_directions contains different # directions for each inducing points (including 0)
         # inducing_values_idx indicates locations of inducing_directions in a full set of directions
         # inducing_values_num indicates # directions for each point
-        full_directions = torch.zeros(num_induc*num_directions, dim).to(inducing_directions.device)
-        full_directions[inducing_values_idx] = inducing_directions
-        # Example of index selection in covar matrix
-        # u1, u2-v1, u2, u3-v3
-        # full_directions = [0; 0; v1; v2; v3; 0]
-        # inducing_values_idx = [2 3 4]
-        # inducing_values_num = [0 2 1]
-        # selected index in matrix = [0 3 4 5 6 7] 
-        selected_idx = []
-        idx = 0
-        for i in range(num_induc):
-            selected_idx.append(idx)
-            for j in range(1,1+max(inducing_values_num)):
-                idx += 1
-                if j <= inducing_values_num[i]:
-                    selected_idx.append(idx) 
-            idx += 1 
+        num_induc = inducing_points.size(-2)
+        dim = inducing_points.size(-1)
+        full_directions = torch.zeros(num_induc*self.num_directions, dim).to(self.inducing_directions.device)
+        full_directions[self.inducing_values_idx] = self.inducing_directions
+        
+       
+
         kwargs['v1'] = full_directions.to(x.device)
-        kwargs['v2'] = derivative_directions.to(x.device)
+        kwargs['v2'] = None
         # self.model.covar_module.base_kernel.set_num_directions(num_directions,num_derivative_directions)
-        self.model.covar_module.set_num_directions(num_directions,num_derivative_directions)
-        full_output = self.model.covar_module(inducing_points,x, **kwargs)[selected_idx,::(num_derivative_directions+1)]
+        self.model.covar_module.set_num_directions(self.num_directions,0)
+        full_output = self.model.covar_module(inducing_points,x, **kwargs)[self.selected_idx]
         induc_data_covar  = full_output.evaluate()
-
-        kwargs['v1'] = derivative_directions.to(x.device)
-        kwargs['v2'] = full_directions.to(x.device)
-        self.model.covar_module.set_num_directions(num_derivative_directions,num_directions)
-        # self.model.covar_module.base_kernel.set_num_directions(num_directions,num_derivative_directions)
-        full_output = self.model.covar_module(x,inducing_points, **kwargs)[::(num_derivative_directions+1),selected_idx]
-        data_induc_covar = full_output.evaluate()
-        # data_induc_covar = induc_data_covar.T
-
+       
+        # kwargs['v1'] = derivative_directions.to(x.device)
+        # kwargs['v2'] = full_directions.to(x.device)
+        # self.model.covar_module.set_num_directions(num_derivative_directions,self.num_directions)
+        # # self.model.covar_module.base_kernel.set_num_directions(num_directions,num_derivative_directions)
+        # full_output = self.model.covar_module(x,inducing_points, **kwargs)[::(num_derivative_directions+1),self.selected_idx]
+        # data_induc_covar = full_output.evaluate()
+        data_induc_covar = induc_data_covar.T
+ 
 
         kwargs['v1'] = full_directions.to(x.device)
         kwargs['v2'] = full_directions.to(x.device)
         # self.model.covar_module.base_kernel.set_num_directions(num_directions,num_derivative_directions)
-        self.model.covar_module.set_num_directions(num_directions,num_directions)
+        self.model.covar_module.set_num_directions(self.num_directions,self.num_directions)
         full_output = self.model.forward(inducing_points, **kwargs)
         # induc_induc_covar  = full_output.lazy_covariance_matrix.add_jitter()
-        induc_induc_covar = full_output.lazy_covariance_matrix[selected_idx,:][:,selected_idx]
+        induc_induc_covar = full_output.lazy_covariance_matrix[self.selected_idx,:][:,self.selected_idx]
 
-        kwargs['v1'] = derivative_directions.to(x.device)
-        kwargs['v2'] = derivative_directions.to(x.device)
+
+        kwargs['v1'] = None
+        kwargs['v2'] = None
         # self.model.covar_module.base_kernel.set_num_directions(num_directions,num_derivative_directions)
-        self.model.covar_module.set_num_directions(num_derivative_directions,num_derivative_directions)
+        self.model.covar_module.set_num_directions(0,0)
         full_output = self.model.forward(x, **kwargs)
-        data_data_covar  = full_output.lazy_covariance_matrix[::(num_derivative_directions+1),::(num_derivative_directions+1)]
+        data_data_covar  = full_output.lazy_covariance_matrix
 
-        # Covariance terms
-        # num_induc = inducing_points.size(-2)
-        # num_directions = inducing_directions.size(-2)
-        # test_mean = full_output.mean[..., num_induc*(num_directions+1):]
-        # induc_induc_covar = full_covar[..., :num_induc*(num_directions+1), :num_induc*(num_directions+1)].add_jitter()
-        # induc_data_covar = full_covar[..., :num_induc*(num_directions+1), num_induc*(num_directions+1):].evaluate()
-        # data_data_covar = full_covar[..., num_induc*(num_directions+1):, num_induc*(num_directions+1):]
-        
         # Compute interpolation terms
         # K_ZZ^{-1/2} K_ZX
         # K_ZZ^{-1/2} \mu_Z
@@ -211,11 +211,10 @@ class DirectionalGradVariationalStrategy(_VariationalStrategy):
                 data_data_covar.add_jitter(1e-4),
                 MatmulLazyTensor(interp_term_trans.transpose(-1, -2), middle_term @ interp_term),
             )
-
-        # Return the distribution
         return MultivariateNormal(predictive_mean, predictive_covar)
 
     def __call__(self, x, prior=False, **kwargs):
+        print("__call__")
         if not self.updated_strategy.item() and not prior:
             with torch.no_grad():
                 # Get unwhitened p(u)
