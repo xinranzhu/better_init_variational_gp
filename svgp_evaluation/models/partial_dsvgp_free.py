@@ -23,9 +23,6 @@ class GPModel(ApproximateGP):
         ):
 
         self.num_inducing   = len(inducing_points)
-        # self.inducing_values_num = inducing_values_num
-        # self.num_directions = int(len(inducing_directions)/self.num_inducing) # num directions per point
-
         num_directional_derivs = sum(inducing_values_num)
 
         if use_ngd:
@@ -33,9 +30,11 @@ class GPModel(ApproximateGP):
           variational_distribution = NaturalVariationalDistribution(self.num_inducing + num_directional_derivs)
         else:
           variational_distribution = CholeskyVariationalDistribution(self.num_inducing + num_directional_derivs)
+        
         # variational strategy q(f)
         variational_strategy = DirectionalGradVariationalStrategy(self,
-            inducing_points, inducing_directions, inducing_values_num, variational_distribution, learn_inducing_locations=learn_inducing_locations)
+            inducing_points, inducing_directions, inducing_values_num, variational_distribution, 
+            learn_inducing_locations=learn_inducing_locations)
         super(GPModel, self).__init__(variational_strategy)
 
         self.mean_module = gpytorch.means.ConstantMean()
@@ -82,6 +81,7 @@ def train_gp(model, likelihood, train_x, train_y,
     test_x=None, 
     test_y=None,
     val_x=None, val_y=None,
+    load_run_path=None,
   ):
   """Train a Derivative GP with the Directional Derivative
   Variational Inference method
@@ -112,6 +112,13 @@ def train_gp(model, likelihood, train_x, train_y,
   dim = len(train_dataset[0][0])
   n_samples = len(train_dataset)
   train_loader = DataLoader(train_dataset, batch_size=train_batch_size, shuffle=True)
+
+  previous_epoch = 0
+  if load_run_path is not None:
+      last_run = torch.load(load_run_path)
+      model.load_state_dict(last_run["model"])
+      likelihood = model.likelihood
+      previous_epoch = last_run["epoch"]
 
   if device == "cuda":
     model = model.to(device=torch.device("cuda"))
@@ -159,7 +166,7 @@ def train_gp(model, likelihood, train_x, train_y,
   start = time.time()
   min_val_rmse = float("Inf")
   min_val_nll = float("Inf")
-  for i in range(num_epochs):
+  for i in range(num_epochs-previous_epoch):
     for x_batch, y_batch in train_loader:
       if device == "cuda":
         x_batch = x_batch.cuda()
@@ -191,14 +198,14 @@ def train_gp(model, likelihood, train_x, train_y,
           "loss": loss.item(), 
           "training_rmse": rmse,
           "training_nll": nll,     
-      }, step=i)
+      }, step=i+previous_epoch)
     if i % 50 == 0:
       min_val_rmse, min_val_nll = val_gp(model, likelihood, val_x, val_y,num_directions,
-                test_batch_size=1024, device=device, tracker=tracker, step=i, 
+                test_batch_size=1024, device=device, tracker=tracker, step=i+previous_epoch, 
                 min_val_rmse=min_val_rmse, min_val_nll=min_val_nll
                 )
       _, _, _, _, _ = eval_gp(model, likelihood, test_x, test_y,num_directions,
-                test_batch_size=1024, device=device, tracker=tracker, step=i)
+                test_batch_size=1024, device=device, tracker=tracker, step=i+previous_epoch)
       model.train()
       likelihood.train()
       print(f"Epoch: {i}; total_step: {total_step}, loss: {loss.item()}, nll: {nll}")
