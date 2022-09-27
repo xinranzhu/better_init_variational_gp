@@ -4,6 +4,7 @@ import argparse
 from scipy.io import loadmat
 from math import floor
 import numpy as np
+import sys
 from splines import spline_K, spline_Kuu
 
 def store(obj_name, method_name, npoints, c, u, theta, phi, sigma, 
@@ -33,7 +34,10 @@ def store(obj_name, method_name, npoints, c, u, theta, phi, sigma,
         res.update(args)
      
     seed = args["seed"]
-    path = f'../results/{obj_name}-{dim}_{method_name}_m{npoints}_{expid}_{seed}.pkl'
+    if expid[0] == "C":
+        path = f'../results-C/{obj_name}-{dim}_{method_name}_m{npoints}_{expid}_{seed}.pkl'
+    else:
+        path = f'../results/{obj_name}-{dim}_{method_name}_m{npoints}_{expid}_{seed}.pkl'
     pkl.dump(res, open(path, 'wb'))
     print("Results saved to ", path)
 
@@ -112,3 +116,12 @@ def str2bool(v):
         return False
     else:
         raise argparse.ArgumentTypeError('Boolean value expected.')
+
+
+def check_cuda_memory():
+    t = torch.cuda.get_device_properties(0).total_memory
+    r = torch.cuda.memory_reserved(0)
+    a = torch.cuda.memory_allocated(0)
+    print(f"Total: {(t/1024/1024/1024):.2f} GB, allocated: {(a/1024/1024/1024):.2f} GB, reserved: {(r/1024/1024/1024):.2f} GB" )
+    sys.stdout.flush()
+

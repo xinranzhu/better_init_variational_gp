@@ -133,13 +133,13 @@ def Dspline_K(x, u, theta, Drho_phi, Dtheta_phi, eps=1e-14):
     R = u.reshape(1,m,d)-x.reshape(n,1,d)
     NR = torch.norm(R, dim=2)
     # NR = n by m
-
     Dphi = Drho_phi(NR, theta=theta)
     mask = NR > eps
     Dphi[mask] = Dphi[mask] / NR[mask]
     Dphi[torch.logical_not(mask)] = 0
 
     DphiR = Dphi[:,:,None]*R
+    del R, Dphi
     DphiR_flat = DphiR.reshape(n, m*d)
     return torch.cat([DphiR_flat, Dtheta_phi(NR, theta=theta)], dim=1)
 
