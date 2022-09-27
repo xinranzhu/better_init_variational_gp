@@ -61,6 +61,7 @@ class Experiment(object):
             )
         else:
             self.tracker = None
+        print("wand run: ", wandb.run.name)
         return self
 
     def done(self):
