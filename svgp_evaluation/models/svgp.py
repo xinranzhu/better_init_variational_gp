@@ -61,15 +61,23 @@ def train_gp(model, likelihood, train_x, train_y,
     save_model=True, save_path=None,
     test_x=None, test_y=None,
     val_x=None, val_y=None,
+    load_run_path=None,
     ):
     
     train_dataset = TensorDataset(train_x, train_y)
     train_loader = DataLoader(train_dataset, batch_size=train_batch_size, shuffle=True)
 
+    previous_epoch = 0
+    if load_run_path is not None:
+        last_run = torch.load(load_run_path)
+        model.load_state_dict(last_run["model"])
+        likelihood = model.likelihood
+        previous_epoch = last_run["epoch"]
+
     if device == "cuda":
         model = model.to(device=torch.device("cuda"))
         likelihood = likelihood.to(device=torch.device("cuda"))
-
+    
     model.train()
     likelihood.train()
 
@@ -109,6 +117,7 @@ def train_gp(model, likelihood, train_x, train_y,
         lr_sched = lambda epoch: 0.8 ** epoch
         hyperparameter_scheduler = torch.optim.lr_scheduler.LambdaLR(hyperparameter_optimizer, lr_lambda=lr_sched)
         variational_scheduler = torch.optim.lr_scheduler.LambdaLR(variational_optimizer, lr_lambda=lr_sched)
+    
     if mll_type == "ELBO":
         mll = gpytorch.mlls.VariationalELBO(likelihood, model, num_data=train_y.size(0), beta=elbo_beta)
     elif mll_type == "PLL":
@@ -117,7 +126,7 @@ def train_gp(model, likelihood, train_x, train_y,
     start = time.time()
     min_val_rmse = float("Inf")
     min_val_nll = float("Inf")
-    for i in range(num_epochs):
+    for i in range(num_epochs-previous_epoch):
         for x_batch, y_batch in train_loader:
             if device == "cuda":
                 x_batch = x_batch.cuda()
@@ -141,14 +150,14 @@ def train_gp(model, likelihood, train_x, train_y,
                 "loss": loss.item(), 
                 "training_rmse": rmse,
                 "training_nll": nll,    
-            }, step=i)
+            }, step=i+previous_epoch)
         if i % 50 == 0:
             min_val_rmse, min_val_nll = val_gp(model, likelihood, val_x, val_y,
-                test_batch_size=1024, device=device, tracker=tracker, step=i, 
+                test_batch_size=1024, device=device, tracker=tracker, step=i+previous_epoch, 
                 min_val_rmse=min_val_rmse, min_val_nll=min_val_nll
                 )
             _, _, _, _, _ = eval_gp(model, likelihood, test_x, test_y,
-                test_batch_size=1024, device=device, tracker=tracker, step=i)
+                test_batch_size=1024, device=device, tracker=tracker, step=i+previous_epoch)
             model.train()
             likelihood.train()
             print(f"Epoch: {i}, loss: {loss.item()}, nll: {nll}, rmse: {rmse}")
