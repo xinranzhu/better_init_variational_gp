@@ -91,22 +91,30 @@ verbose=False
 
 # Forward regression
 start=time.time()
+print("args: ", args)
+sys.stdout.flush()
 if init == "fwd": 
     method = "fwd"
-    print("args: ", args)
     try: 
         res = pkl.load(open(f'../results/{obj_name}-{dim}_fwd_m{num_inducing}_{expid}_{seed}.pkl', 'rb'))
         u_init = res["u"].to(device=train_x.device)
         print("Loaded fwd results")
+        sys.stdout.flush()
     except:
         u_init = spline_forward_regression(train_x, train_y, fwd_num_start, num_inducing, 
             theta_init, phi, ncand=ncand, verbose=verbose, 
             count_random_max=count_random_max, max_obj_tol=max_obj_tol)
 elif init == "kmeans": 
     method="kmeans"
-    xk = train_x.cpu().numpy()
-    kmeans = KMeans(n_clusters=num_inducing, random_state=seed).fit(xk)
-    u_init = torch.tensor(kmeans.cluster_centers_).to(device=train_x.device)
+    try: 
+        res = pkl.load(open(f'../results/{obj_name}-{dim}_kmeans_m{num_inducing}_{expid}_{seed}.pkl', 'rb'))
+        u_init = res["u"].to(device=train_x.device)
+        print("Loaded kmeans results")
+        sys.stdout.flush()
+    except:
+        xk = train_x.cpu().numpy()
+        kmeans = KMeans(n_clusters=num_inducing, random_state=seed).fit(xk)
+        u_init = torch.tensor(kmeans.cluster_centers_).to(device=train_x.device)
 
 c_init = spline_fit(u_init, train_x, train_y, theta_init, phi, sigma=sigma)
 end = time.time()
@@ -115,6 +123,7 @@ args["time"] = time_init
 r = rms_vs_truth(u_init, c_init, theta_init, phi, test_x, test_y)
 args["r"] = r
 print(f"Using {method}, RMS: {r:.4e}  norm(c): {torch.norm(c_init):.2f}  time cost: {time_init:.2f} sec.")
+sys.stdout.flush()
 store(obj_name, method, num_inducing, c_init, u_init, theta_init, phi, sigma, expid=expid, args=args)
 
 
@@ -163,6 +172,7 @@ args["time"] = time_lm
 r = rms_vs_truth(ulm, clm, thetalm, phi, test_x, test_y)
 args["r"] = r
 print(f"Uisng {method}, RMS: {r:.4e}  norm(c): {torch.norm(clm):.2f}  time cost: {time_lm:.2f} sec.")
+sys.stdout.flush()
 store(obj_name, method, num_inducing, clm, ulm, thetalm, phi, sigma, expid=expid, args=args)
 
 
