@@ -56,12 +56,11 @@ def Dtheta_phi(rho, theta):
     return kernel.Dtheta_phi(rho)
 
 # loda data
-# loda data
 data_loader = 0 if obj_name in {"bike", "energy", "protein"} else 1
 if data_loader > 0:
-    train_x, train_y, valid_x, valid_y, test_x, test_y = load_data(dataset=obj_name, device=device, seed=seed)
+    train_x, train_y, valid_x, valid_y, test_x, test_y = load_data(dataset=obj_name, seed=seed)
 else:
-    train_x, train_y, val_x, val_y, test_x, test_y = load_data_old(obj_name, dim, seed=seed, device=device)
+    train_x, train_y, val_x, val_y, test_x, test_y = load_data_old(obj_name, dim, seed=seed)
 
 if device == "cuda":
     train_x = train_x.cuda()
@@ -100,7 +99,7 @@ end = time.time()
 time_cost = end-start
 args["time"] = time_cost
 r = rms_vs_truth(u2, c2, theta, phi, test_x, test_y, V=V2)
-print(f"Adding {num_directions} directions  RMS: {r:.4e}  norm(c): {torch.norm(c2):.2f} time_cost: {time_cost:.2f} sec.")
+print(f"Adding {num_directions} directions, {u2.shape[0]} inducing points left,  RMS: {r:.4e}  norm(c): {torch.norm(c2):.2f} time_cost: {time_cost:.2f} sec.")
 store(obj_name, method, num_inducing, c2, u2, theta, phi, sigma, 
     expid=expid, args=args, V=V2)
 
