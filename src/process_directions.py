@@ -122,9 +122,11 @@ def re_index(u, V, idx_to_remove):
         if i in V.keys():
             new_key = np.where(idx2==i)[0][0]
             V2[new_key] = V[i]
+    num_directions = 0
     for key in V2.keys():
         remove_idx = remove_directions(V2[key], 10)[0]
         mask = np.ones(V2[key].shape[0], dtype=bool)
         mask[remove_idx] = False
         V2[key] = V2[key][mask]
-    return u2, V2
+        num_directions += V2[key].shape[0]
+    return u2, V2, num_directions

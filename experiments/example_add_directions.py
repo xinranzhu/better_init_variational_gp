@@ -88,8 +88,9 @@ print(f"Using {method}, RMS: {r:.4e}, stored_r: {res['r']:.4e} norm(c): {torch.n
 
 # cluster detection 
 start = time.time()
-V, idx_to_remove, num_directions = generate_directions(u.cpu(), q=q, num_cut=num_cut)
-u2, V2 = re_index(u, V, idx_to_remove)
+V, idx_to_remove, _ = generate_directions(u.cpu(), q=q, num_cut=num_cut)
+u2, V2, num_directions = re_index(u, V, idx_to_remove)
+
 
 # check new fitting results with directions
 # u2 = torch.tensor(u2).to(device=train_x.device)
@@ -101,7 +102,7 @@ args["time"] = time_cost
 r = rms_vs_truth(u2, c2, theta, phi, test_x, test_y, V=V2)
 print(f"Adding {num_directions} directions, {u2.shape[0]} inducing points left,  RMS: {r:.4e}  norm(c): {torch.norm(c2):.2f} time_cost: {time_cost:.2f} sec.")
 store(obj_name, method, num_inducing, c2, u2, theta, phi, sigma, 
-    expid=expid, args=args, V=V2)
+    expid=expid, args=args, V=V2, num_cut=num_cut)
 
 
 

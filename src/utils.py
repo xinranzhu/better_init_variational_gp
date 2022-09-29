@@ -8,7 +8,7 @@ import sys
 from splines import spline_K, spline_Kuu
 
 def store(obj_name, method_name, npoints, c, u, theta, phi, sigma, 
-    expid=None, args=None, V=None):
+    expid=None, args=None, V=None, num_cut=None):
 
     m, dim = u.shape
     res = {"u": u.cpu(), "theta": theta, "sigma": sigma}
@@ -34,10 +34,10 @@ def store(obj_name, method_name, npoints, c, u, theta, phi, sigma,
         res.update(args)
      
     seed = args["seed"]
-    if expid[0] == "C":
-        path = f'../results-C/{obj_name}-{dim}_{method_name}_m{npoints}_{expid}_{seed}.pkl'
-    else:
+    if num_cut is None:
         path = f'../results/{obj_name}-{dim}_{method_name}_m{npoints}_{expid}_{seed}.pkl'
+    else:
+        path = f'../results/{obj_name}-{dim}_{method_name}_m{npoints}_{expid}_{seed}_{num_cut}.pkl'
     pkl.dump(res, open(path, 'wb'))
     print("Results saved to ", path)
 
