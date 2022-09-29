@@ -101,6 +101,16 @@ class SVGP_exp(Experiment):
 
         load_run_path = self.save_path + "_" + load_run + ".model" if load_run is not None else None
         print("Loading previous run: ", load_run)
+
+        means, variances, rmse, test_nll, testing_time = eval_gp(
+            self.model, self.likelihood, 
+            self.test_x, self.test_y, 
+            device=self.device,
+            tracker=None)
+        print("Initial test: rmse = ", rmse)
+        print("learn_inducing_values = ", self.learn_inducing_values)
+        print("learn_inducing_locations = ", self.learn_inducing_locations)
+        
         self.model, self.likelihood, _, = train_gp(
             self.model, self.likelihood, 
             self.train_x, self.train_y, 

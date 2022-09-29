@@ -141,8 +141,6 @@ class DirectionalGradVariationalStrategy(_VariationalStrategy):
         dim = inducing_points.size(-1)
         full_directions = torch.zeros(num_induc*self.num_directions, dim).to(self.inducing_directions.device)
         full_directions[self.inducing_values_idx] = self.inducing_directions
-        
-       
 
         kwargs['v1'] = full_directions.to(x.device)
         kwargs['v2'] = None

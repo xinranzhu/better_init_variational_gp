@@ -5,7 +5,7 @@ import torch
 import gpytorch
 from gpytorch.models import ApproximateGP
 from gpytorch.variational import CholeskyVariationalDistribution, NaturalVariationalDistribution
-from gpytorch.variational import VariationalStrategy, UnwhitenedVariationalStrategy
+from gpytorch.variational import VariationalStrategy
 from torch.utils.data import TensorDataset, DataLoader
 
 class GPModel(ApproximateGP):
@@ -106,7 +106,7 @@ def train_gp(model, likelihood, train_x, train_y,
             ], lr=lr)
 
     if scheduler == "multistep":
-        milestones = [int(num_epochs/3), int(2*num_epochs/3)]
+        milestones = [int(num_epochs*len(train_loader)/3), int(2*num_epochs*len(train_loader)/3)]
         hyperparameter_scheduler = torch.optim.lr_scheduler.MultiStepLR(hyperparameter_optimizer, milestones, gamma=gamma)
         variational_scheduler = torch.optim.lr_scheduler.MultiStepLR(variational_optimizer, milestones, gamma=gamma)
     elif scheduler == None:
@@ -127,6 +127,7 @@ def train_gp(model, likelihood, train_x, train_y,
     min_val_rmse = float("Inf")
     min_val_nll = float("Inf")
     for i in range(num_epochs-previous_epoch):
+        # time1 = time.time()
         for x_batch, y_batch in train_loader:
             if device == "cuda":
                 x_batch = x_batch.cuda()
@@ -165,7 +166,9 @@ def train_gp(model, likelihood, train_x, train_y,
             if save_model:
                 state = {"model": model.state_dict(), "epoch": i}
                 torch.save(state, f'{save_path}.model')
-
+        # time2 = time.time()
+        # print("Time cost for 1 epoch: ", time2-time1)
+        # sys.stdout.flush()
     end = time.time()
     training_time = end - start
     if tracker is not None:
