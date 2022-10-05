@@ -164,7 +164,7 @@ def train_gp(model, likelihood, train_x, train_y,
   if mll_type == "ELBO":
     mll = gpytorch.mlls.VariationalELBO(likelihood, model, num_data=train_y.size(0), beta=elbo_beta)
   elif mll_type == "PLL":
-    mll = gpytorch.mlls.PredictiveLogLikelihood(likelihood, model, num_data=train_y.size(0))
+    mll = gpytorch.mlls.PredictiveLogLikelihood(likelihood, model, num_data=train_y.size(0), beta=elbo_beta)
 
   total_step=0
   kwargs = {'derivative_directions': None}
