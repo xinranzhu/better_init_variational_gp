@@ -116,7 +116,7 @@ class PartialDfreeSVGP_exp(Experiment):
     def train(self, lr=0.1, num_epochs=10, 
         scheduler=None, gamma=1.0, 
         train_batch_size=1024,
-        mll_type="PLL", elbo_beta=0.1, 
+        mll_type="PLL", beta=1.0, 
         load_run=None):
 
         self.method_args['train'] = locals()
@@ -143,7 +143,7 @@ class PartialDfreeSVGP_exp(Experiment):
             lr=lr,
             scheduler=scheduler, 
             gamma=gamma,
-            elbo_beta=elbo_beta,
+            elbo_beta=beta,
             mll_type=mll_type,
             device=self.device,
             tracker=self.tracker,
