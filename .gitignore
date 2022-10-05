@@ -1,8 +1,10 @@
 *.pyc
 *.pkl
 *.ipynb
+a.out*
 svgp_evaluation/wandb
 data
 slurm_output
 *.sh
 svgp_evaluation/saved_models
+uci

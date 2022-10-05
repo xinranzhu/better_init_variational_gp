@@ -1,5 +1,4 @@
 # baseline GP regression, use all training data 
-from pyexpat import model
 import numpy as np
 import time
 import sys
@@ -31,10 +30,12 @@ class SVGP_exp(Experiment):
     def init_hypers(self, num_inducing=2, 
         init_method="random", 
         init_expid="-",
-        learn_inducing_locations=True, 
-        learn_inducing_values=True,
+        learn_u=True, 
+        learn_m=True,
         use_ngd=False, ngd_lr=0.1,
-        save_model=False):
+        save_model=False,
+        init_covar=True, 
+        ):
 
         self.method_args['init_hypers'] = locals()
         # m is the size of Kuu, recorded to maintain the same computational cost
@@ -42,42 +43,54 @@ class SVGP_exp(Experiment):
         self.method_args['init_hypers']['m'] = m
         del self.method_args['init_hypers']['self']
 
-        self.learn_inducing_locations = learn_inducing_locations
-        self.learn_inducing_values = learn_inducing_values
+        self.learn_u = learn_u
+        self.learn_m = learn_m
 
-        if init_method == "random":
+        if init_method.startswith("random"):
             rand_index = random.sample(range(self.train_n), num_inducing)
             u0 = self.train_x[rand_index, :]
         elif init_method == "kmeans":
             from sklearn.cluster import KMeans
-            xk = self.train_x.numpy()
+            xk = self.train_x.cpu().numpy()
             kmeans = KMeans(n_clusters=num_inducing, random_state=0).fit(xk)
             u0 = kmeans.cluster_centers_
         else: # method = "fwd", "lm" or "tr_newton"
-            res = pkl.load(open(f"../results/{self.obj_name}-{self.dim}_{init_method}_m{m}_{init_expid}.pkl", "rb"))
+            res = pkl.load(open(f"../results/{self.obj_name}-{self.dim}_{init_method}_m{m}_{init_expid}_{self.seed}.pkl", "rb"))
             u0 = res["u"]
             c = res["c"]
             sigma = res["sigma"]
             theta = res["theta"]
+            time_cost = res["time"]
+            if init_covar:
+                Sbar = res["Sbar"]
+                Lbar = torch.linalg.cholesky(Sbar)
+            print(f"Pretraining by {init_method} cost: {time_cost} sec.")
             assert u0.shape[0] == num_inducing and u0.shape[1] == self.dim
 
         u0 = torch.tensor(u0)
         model = GPModel(inducing_points=u0, 
-            learn_inducing_locations=learn_inducing_locations,
+            learn_inducing_locations=learn_u,
             use_ngd=use_ngd)
 
-        if init_method not in {"random", "kmeans"}:
+        if init_method not in {"random", "kmeans", "random_init_noise"}:
             print("Initializing noise, theta and variational_mean")
             hypers = {
-                    'likelihood.noise_covar.noise': torch.tensor(sigma),
+                    'likelihood.noise_covar.noise': torch.tensor(sigma**2),
                     'covar_module.lengthscale': torch.tensor(theta),
                     }
             if use_ngd:
-                hypers["variational_strategy._variational_distribution.natural_vec"] = torch.tensor(c).to(u0.device)
+                hypers["variational_strategy._variational_distribution.natural_vec"] = c.to(u0.device)
             else:
-                hypers["variational_strategy._variational_distribution.variational_mean"] = torch.tensor(c).to(u0.device)
+                if init_covar:
+                    print("initializing covar.")
+                    hypers["variational_strategy._variational_distribution.chol_variational_covar"] = Lbar.to(u0.device)
+                hypers["variational_strategy._variational_distribution.variational_mean"] = c.to(u0.device)
             model.initialize(**hypers)
-            
+        if init_method == "random_init_noise":
+            hypers = {
+                    'likelihood.noise_covar.noise': torch.tensor(0.1**2),
+                    }  
+            model.initialize(**hypers)
         self.model = model
         self.likelihood = model.likelihood
         self.use_ngd = use_ngd
@@ -88,25 +101,37 @@ class SVGP_exp(Experiment):
         return self
 
     def train(self, lr=0.1, num_epochs=10, 
-        scheduler=None, gamma=0.3, 
+        scheduler="multistep", gamma=1.0, 
         train_batch_size=1024,
-        mll_type="ELBO", elbo_beta=0.1):
+        mll_type="PLL", beta=1.0,
+        load_run=None,
+        learn_S_only=False,
+        separate_group=None, lr2=None, gamma2=None,
+        ):
 
         self.method_args['train'] = locals()
         del self.method_args['train']['self']
         self.track_run()
 
+        load_run_path = self.save_path + "_" + load_run + ".model" if load_run is not None else None
+        print("Loading previous run: ", load_run)
 
+        means, variances, rmse, test_nll, testing_time = eval_gp(
+            self.model, self.likelihood, 
+            self.test_x, self.test_y, 
+            device=self.device,
+            tracker=None)
+        
         self.model, self.likelihood, _, = train_gp(
             self.model, self.likelihood, 
             self.train_x, self.train_y, 
             num_epochs=num_epochs, 
             train_batch_size=train_batch_size,
-            learn_inducing_values=self.learn_inducing_values,
+            learn_inducing_values=self.learn_m,
             lr=lr,
             scheduler=scheduler, 
             gamma=gamma,
-            elbo_beta=elbo_beta,
+            elbo_beta=beta,
             mll_type=mll_type,
             device=self.device,
             tracker=self.tracker,
@@ -114,7 +139,11 @@ class SVGP_exp(Experiment):
             save_model=self.save_model,
             save_path=self.save_path + f'_{wandb.run.name}',
             test_x=self.test_x, test_y=self.test_y,
-            val_x=self.val_x, val_y=self.val_y)
+            val_x=self.val_x, val_y=self.val_y,
+            load_run_path=load_run_path,
+            learn_S_only=learn_S_only,
+            separate_group=separate_group, lr2=lr2, gamma2=gamma2,
+        )
 
         if self.save_model:
             save_path = self.save_path + f'_{wandb.run.name}'

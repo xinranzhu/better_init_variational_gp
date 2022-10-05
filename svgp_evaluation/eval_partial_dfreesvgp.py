@@ -30,13 +30,13 @@ class PartialDfreeSVGP_exp(Experiment):
 
     def init_hypers(self, num_inducing=2, 
         init_method="random", 
-        total_num_directions = 2,
+        total_num_directions=2,
         init_expid='-',
         m=0,
         learn_inducing_locations=True, 
         use_ngd=False, ngd_lr=0.1,
-        learn_inducing_values=True,
-        save_model=False):
+        save_model=False,
+        num_cut=20):
 
         self.method_args['init_hypers'] = locals()
         del self.method_args['init_hypers']['self']
@@ -72,7 +72,7 @@ class PartialDfreeSVGP_exp(Experiment):
             inducing_values_num[rand_index_with_direction] = 1
 
         elif init_method.startswith("lm") or init_method.startswith("tr_newton"):
-            res = pkl.load(open(f"../results/{self.obj_name}-{self.dim}_{init_method}_m{m}_{init_expid}.pkl", "rb"))
+            res = pkl.load(open(f"../results/{self.obj_name}-{self.dim}_{init_method}_m{m}_{init_expid}_{self.seed}_{num_cut}.pkl", "rb"))
             u0 = res["u"]
             c = res["c"]
             sigma = res["sigma"]
@@ -82,6 +82,8 @@ class PartialDfreeSVGP_exp(Experiment):
             inducing_directions = torch.tensor(inducing_directions)
             inducing_values_num = torch.tensor(inducing_values_num)
             num_directions = inducing_values_num.max().item()
+            print("inducing_values_num.sum().item() = ", inducing_values_num.sum().item())
+            print("total_num_directions = ", total_num_directions)
             assert total_num_directions == inducing_values_num.sum().item()
 
         model = GPModel(inducing_points=u0, 
@@ -112,14 +114,26 @@ class PartialDfreeSVGP_exp(Experiment):
         return self
 
     def train(self, lr=0.1, num_epochs=10, 
-        scheduler=None, gamma=0.3, 
+        scheduler=None, gamma=1.0, 
         train_batch_size=1024,
-        mll_type="ELBO", elbo_beta=0.1):
+        mll_type="PLL", beta=1.0, 
+        load_run=None):
 
         self.method_args['train'] = locals()
         del self.method_args['train']['self']
         self.track_run()
 
+        means, variances, rmse, test_nll, testing_time = eval_gp(
+            self.model, self.likelihood, 
+            self.test_x, self.test_y, 
+            num_directions=self.num_directions,
+            test_batch_size=2048,
+            device=self.device,
+            tracker=None)
+        print("Initial test: rmse = ", rmse)
+        
+        load_run_path = self.save_path + "_" + load_run + ".model" if load_run is not None else None
+        print("Loading previous run: ", load_run)
         self.model, self.likelihood, _, = train_gp(
             self.model, self.likelihood, 
             self.train_x, self.train_y, 
@@ -129,15 +143,16 @@ class PartialDfreeSVGP_exp(Experiment):
             lr=lr,
             scheduler=scheduler, 
             gamma=gamma,
-            elbo_beta=elbo_beta,
+            elbo_beta=beta,
             mll_type=mll_type,
             device=self.device,
             tracker=self.tracker,
             use_ngd=self.use_ngd, ngd_lr=self.ngd_lr,
             save_model=self.save_model,
-            save_path='self.save_path'+f'_{wandb.run.name}',
+            save_path=self.save_path+f'_{wandb.run.name}',
             test_x=self.test_x, test_y=self.test_y,
-            val_x=self.val_x, val_y=self.val_y)
+            val_x=self.val_x, val_y=self.val_y,
+            load_run_path=load_run_path)
         
         if self.save_model:
             save_path = self.save_path + f'_{wandb.run.name}'

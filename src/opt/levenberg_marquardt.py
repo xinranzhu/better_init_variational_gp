@@ -1,4 +1,8 @@
+import sys
 import torch 
+sys.path.append("../")
+from utils import check_cuda_memory
+
 def levenberg_marquardt(f, J, x, theta, nsteps=100, rtol=1e-8, tau=1e-3):
 
     # Evaluate everything at the initial point
@@ -35,11 +39,17 @@ def levenberg_marquardt(f, J, x, theta, nsteps=100, rtol=1e-8, tau=1e-3):
         if rho > 0:  # Success!
             # print(f"success, theta_new: {theta_new}")
             # Accept new point
+            # print("delete fx, Jx, Hx.")
+            # sys.stdout.flush()
+            # check_cuda_memory()
+            del fx, Jx, Hx
             x = xnew
             theta = theta_new
             fx = fxnew
+            del fxnew, xnew
             Jx = J(x,theta)
             Hx = torch.matmul(Jx.T, Jx)
+            # check_cuda_memory()
             # Reset re-scaling parameter, update damping
             mu = mu*max(1.0/3.0, 1.0-2.0*(rho.item()-1.0)**3)
             v = 2.0

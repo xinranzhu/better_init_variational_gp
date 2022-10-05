@@ -5,7 +5,7 @@ import torch
 import gpytorch
 from gpytorch.models import ApproximateGP
 from gpytorch.variational import CholeskyVariationalDistribution, NaturalVariationalDistribution
-from gpytorch.variational import VariationalStrategy, UnwhitenedVariationalStrategy
+from gpytorch.variational import VariationalStrategy
 from torch.utils.data import TensorDataset, DataLoader
 
 class GPModel(ApproximateGP):
@@ -49,10 +49,16 @@ def get_inducing_points(gp):
         if params[0] == 'inducing_points':
             return params[1].data
 
+def check_optimizer(optimizer, name=None):
+    print(f"\n{name}: lr = ", optimizer.param_groups[0]['lr'])
+    for group in optimizer.param_groups:
+        print("lr = ", group['lr'])
+        for param in group['params']:
+            print(f"contains param with shape = ", param.shape)
 
 def train_gp(model, likelihood, train_x, train_y, 
     num_epochs=1000, train_batch_size=1024,
-    learn_inducing_values=True, lr=0.01, 
+    learn_inducing_values=True, lr=0.01,
     scheduler=None, gamma=0.3,
     elbo_beta=0.1,
     mll_type="ELBO",
@@ -61,77 +67,139 @@ def train_gp(model, likelihood, train_x, train_y,
     save_model=True, save_path=None,
     test_x=None, test_y=None,
     val_x=None, val_y=None,
+    load_run_path=None,
+    learn_S_only=False,
+    separate_group=None, lr2=None, gamma2=None,
     ):
     
     train_dataset = TensorDataset(train_x, train_y)
     train_loader = DataLoader(train_dataset, batch_size=train_batch_size, shuffle=True)
 
+    previous_epoch = 0
+    if load_run_path is not None:
+        last_run = torch.load(load_run_path)
+        model.load_state_dict(last_run["model"])
+        likelihood = model.likelihood
+        previous_epoch = last_run["epoch"]
+
     if device == "cuda":
         model = model.to(device=torch.device("cuda"))
         likelihood = likelihood.to(device=torch.device("cuda"))
-
+    
     model.train()
     likelihood.train()
 
     if use_ngd:
         print("using NGD")
-        variational_optimizer = gpytorch.optim.NGD(model.variational_parameters(), num_data=train_y.size(0), lr=ngd_lr)
-        hyperparameter_optimizer = torch.optim.Adam([
+        optimizer1 = gpytorch.optim.NGD(model.variational_parameters(), num_data=train_y.size(0), lr=ngd_lr)
+        optimizer2 = torch.optim.Adam([
             {'params': model.hyperparameters()},
         ], lr=lr)
     else:
         if learn_inducing_values:
-            hyperparameter_optimizer = torch.optim.Adam([
+            optimizer1 = torch.optim.Adam([
                 {'params': model.hyperparameters()}, # inducing points, mean_const, raw_noise, raw_lengthscale 
             ], lr=lr)
-            variational_optimizer =  torch.optim.Adam([
+            optimizer2 =  torch.optim.Adam([
                 {'params': model.variational_parameters()}, 
             ], lr=lr)
         else:
-            hyperparameter_optimizer = torch.optim.Adam([
+            optimizer1 = torch.optim.Adam([
                 {'params': model.hyperparameters()}, # inducing points, mean_const, raw_noise, raw_lengthscale 
             ], lr=lr)
             # don't learn variational mean, make sure the inducing points are fixed as well
             assert 'variational_strategy.inducing_points' not in [param[0] for param in model.named_hyperparameters()]
-            variational_optimizer = torch.optim.Adam([
+            optimizer2 = torch.optim.Adam([
                 {'params': model.variational_strategy._variational_distribution.chol_variational_covar},
             ], lr=lr)
 
+    if separate_group == "u_m_covar":
+        optimizer1 =  torch.optim.Adam([
+                {'params': model.covar_module.raw_lengthscale}, 
+                {'params':  model.mean_module.constant},
+                {'params': model.likelihood.raw_noise},
+            ], lr=lr) 
+        optimizer2 =  torch.optim.Adam([
+                {'params': model.variational_parameters()},
+                {'params': model.variational_strategy.inducing_points},  
+            ], lr=lr2)
+    elif separate_group == "u":
+        optimizer2 =  torch.optim.Adam([
+                {'params': model.variational_strategy.inducing_points}, 
+            ], lr=lr2)
+        optimizer1 =  torch.optim.Adam([
+                {'params': model.variational_parameters()},
+                {'params': model.covar_module.raw_lengthscale},
+                 {'params':  model.mean_module.constant}, 
+                 {'params': model.likelihood.raw_noise},
+            ], lr=lr)
+    elif separate_group == "u_m":
+        optimizer2 =  torch.optim.Adam([
+                {'params': model.variational_strategy.inducing_points}, 
+                {'params': model.variational_strategy._variational_distribution.variational_mean}, 
+            ], lr=lr2)
+        optimizer1 =  torch.optim.Adam([
+                {'params': model.variational_strategy._variational_distribution.chol_variational_covar},
+                {'params': model.covar_module.raw_lengthscale},
+                 {'params':  model.mean_module.constant}, 
+                 {'params': model.likelihood.raw_noise},
+            ], lr=lr)
+
+
+    check_optimizer(optimizer1, name="optimizer1")
+    check_optimizer(optimizer2, name="optimizer2")
+
     if scheduler == "multistep":
-        milestones = [int(num_epochs/3), int(2*num_epochs/3)]
-        hyperparameter_scheduler = torch.optim.lr_scheduler.MultiStepLR(hyperparameter_optimizer, milestones, gamma=gamma)
-        variational_scheduler = torch.optim.lr_scheduler.MultiStepLR(variational_optimizer, milestones, gamma=gamma)
+        milestones = [int(num_epochs*len(train_loader)/3), int(2*num_epochs*len(train_loader)/3)]
+        scheduler1 = torch.optim.lr_scheduler.MultiStepLR(optimizer1, milestones, gamma=gamma)
+        scheduler2 = torch.optim.lr_scheduler.MultiStepLR(optimizer2, milestones, gamma=gamma2)
     elif scheduler == None:
         lr_sched = lambda epoch: 1.0
-        hyperparameter_scheduler = torch.optim.lr_scheduler.LambdaLR(hyperparameter_optimizer, lr_lambda=lr_sched)
-        variational_scheduler = torch.optim.lr_scheduler.LambdaLR(variational_optimizer, lr_lambda=lr_sched)
+        scheduler1 = torch.optim.lr_scheduler.LambdaLR(optimizer1, lr_lambda=lr_sched)
+        scheduler2 = torch.optim.lr_scheduler.LambdaLR(optimizer2, lr_lambda=lr_sched)
     elif scheduler == "lambda":
         lr_sched = lambda epoch: 0.8 ** epoch
-        hyperparameter_scheduler = torch.optim.lr_scheduler.LambdaLR(hyperparameter_optimizer, lr_lambda=lr_sched)
-        variational_scheduler = torch.optim.lr_scheduler.LambdaLR(variational_optimizer, lr_lambda=lr_sched)
+        scheduler1 = torch.optim.lr_scheduler.LambdaLR(optimizer1, lr_lambda=lr_sched)
+        scheduler2 = torch.optim.lr_scheduler.LambdaLR(optimizer2, lr_lambda=lr_sched)
+    
+    if learn_S_only:
+        print("learn S only")
+        optimizer2 = torch.optim.Adam([
+                    {'params': model.variational_strategy._variational_distribution.chol_variational_covar},
+                ], lr=lr)
+        optimizer1 = None
+        scheduler1 = None
+
     if mll_type == "ELBO":
         mll = gpytorch.mlls.VariationalELBO(likelihood, model, num_data=train_y.size(0), beta=elbo_beta)
     elif mll_type == "PLL":
-        mll = gpytorch.mlls.PredictiveLogLikelihood(likelihood, model, num_data=train_y.size(0))
+        mll = gpytorch.mlls.PredictiveLogLikelihood(likelihood, model, num_data=train_y.size(0), beta=elbo_beta)
 
     start = time.time()
     min_val_rmse = float("Inf")
     min_val_nll = float("Inf")
-    for i in range(num_epochs):
+    for i in range(num_epochs-previous_epoch):
+        # time1 = time.time()
         for x_batch, y_batch in train_loader:
             if device == "cuda":
                 x_batch = x_batch.cuda()
                 y_batch = y_batch.cuda()
-            hyperparameter_optimizer.zero_grad()
-            variational_optimizer.zero_grad()
-            output = model(x_batch)
+            if optimizer1 is not None:
+                optimizer1.zero_grad()
+            optimizer2.zero_grad()
+            output = likelihood(model(x_batch))
             loss = -mll(output, y_batch)
             loss.backward()
-            hyperparameter_optimizer.step()
-            variational_optimizer.step()
-            hyperparameter_scheduler.step()
-            variational_scheduler.step()
+            if scheduler1 is not None:
+                optimizer1.step()
+                scheduler1.step()
+            optimizer2.step()
+            scheduler2.step()
 
+        if i == 0:
+            # make sure 
+            print("chol_variational_covar grad: ", model.variational_strategy._variational_distribution.chol_variational_covar.grad)
+            print("mean grad: ", model.variational_strategy._variational_distribution.variational_mean.grad)
         means = output.mean.cpu()
         stds  = output.variance.sqrt().cpu()
         rmse = torch.mean((means - y_batch.cpu())**2).sqrt()
@@ -141,24 +209,39 @@ def train_gp(model, likelihood, train_x, train_y,
                 "loss": loss.item(), 
                 "training_rmse": rmse,
                 "training_nll": nll,    
-            }, step=i)
-        if i % 50 == 0:
+            }, step=i+previous_epoch)
+        if i % 10 == 0:
             min_val_rmse, min_val_nll = val_gp(model, likelihood, val_x, val_y,
-                test_batch_size=1024, device=device, tracker=tracker, step=i, 
+                test_batch_size=1024, device=device, tracker=tracker, step=i+previous_epoch, 
                 min_val_rmse=min_val_rmse, min_val_nll=min_val_nll
                 )
             _, _, _, _, _ = eval_gp(model, likelihood, test_x, test_y,
-                test_batch_size=1024, device=device, tracker=tracker, step=i)
+                test_batch_size=1024, device=device, tracker=tracker, step=i+previous_epoch)
             model.train()
             likelihood.train()
-            print(f"Epoch: {i}, loss: {loss.item()}, nll: {nll}, rmse: {rmse}")
+            # print(f"Epoch: {i}, loss: {loss.item()}, nll: {nll}, rmse: {rmse}")
+            # print("optimizer1: lr = ", optimizer1.param_groups[0]['lr'])
+            # print("optimizer2: lr = ", optimizer2.param_groups[0]['lr'])
             sys.stdout.flush()
             if save_model:
                 state = {"model": model.state_dict(), "epoch": i}
                 torch.save(state, f'{save_path}.model')
-
+        # time2 = time.time()
+        # print("Time cost for 1 epoch: ", time2-time1)
+        # sys.stdout.flush()
     end = time.time()
     training_time = end - start
+    min_val_rmse, min_val_nll = val_gp(model, likelihood, val_x, val_y,
+                test_batch_size=1024, device=device, tracker=tracker, step=i+previous_epoch, 
+                min_val_rmse=min_val_rmse, min_val_nll=min_val_nll
+                )
+    _, _, _, _, _ = eval_gp(model, likelihood, test_x, test_y,
+        test_batch_size=1024, device=device, tracker=tracker, step=i+previous_epoch)
+    sys.stdout.flush()
+    if save_model:
+        state = {"model": model.state_dict(), "epoch": i}
+        torch.save(state, f'{save_path}.model')
+
     if tracker is not None:
         tracker.log({
             "training_time":training_time,       
@@ -181,13 +264,16 @@ def eval_gp(model, likelihood, test_x, test_y,
     variances = torch.tensor([0.])
     start = time.time()
     with torch.no_grad():
-        for x_batch, _ in test_loader:
+        for x_batch, y_batch in test_loader:
             if device == "cuda":
                 x_batch = x_batch.cuda()
+                y_batch = y_batch.cuda()
             preds = likelihood(model(x_batch))
+            # preds = model(x_batch)
             if device == "cuda":
                 means = torch.cat([means, preds.mean.cpu()])
                 variances = torch.cat([variances, preds.variance.cpu()])
+                # print("means = ", preds.mean.cpu()[:10])
             else:
                 means = torch.cat([means, preds.mean])
                 variances = torch.cat([variances, preds.variance])

@@ -23,9 +23,6 @@ class GPModel(ApproximateGP):
         ):
 
         self.num_inducing   = len(inducing_points)
-        # self.inducing_values_num = inducing_values_num
-        # self.num_directions = int(len(inducing_directions)/self.num_inducing) # num directions per point
-
         num_directional_derivs = sum(inducing_values_num)
 
         if use_ngd:
@@ -33,9 +30,11 @@ class GPModel(ApproximateGP):
           variational_distribution = NaturalVariationalDistribution(self.num_inducing + num_directional_derivs)
         else:
           variational_distribution = CholeskyVariationalDistribution(self.num_inducing + num_directional_derivs)
+        
         # variational strategy q(f)
         variational_strategy = DirectionalGradVariationalStrategy(self,
-            inducing_points, inducing_directions, inducing_values_num, variational_distribution, learn_inducing_locations=learn_inducing_locations)
+            inducing_points, inducing_directions, inducing_values_num, variational_distribution, 
+            learn_inducing_locations=learn_inducing_locations)
         super(GPModel, self).__init__(variational_strategy)
 
         self.mean_module = gpytorch.means.ConstantMean()
@@ -77,11 +76,12 @@ def train_gp(model, likelihood, train_x, train_y,
     mll_type="ELBO",
     device="cpu", tracker=None,
     use_ngd=False, ngd_lr=0.1,
-    save_model=False,
+    save_model=True,
     save_path=None,
     test_x=None, 
     test_y=None,
     val_x=None, val_y=None,
+    load_run_path=None,
   ):
   """Train a Derivative GP with the Directional Derivative
   Variational Inference method
@@ -112,6 +112,17 @@ def train_gp(model, likelihood, train_x, train_y,
   dim = len(train_dataset[0][0])
   n_samples = len(train_dataset)
   train_loader = DataLoader(train_dataset, batch_size=train_batch_size, shuffle=True)
+
+  previous_epoch = 0
+  min_val_rmse = float("Inf")
+  min_val_nll = float("Inf")
+  if load_run_path is not None:
+      last_run = torch.load(load_run_path)
+      model.load_state_dict(last_run["model"])
+      likelihood = model.likelihood
+      previous_epoch = last_run["epoch"]
+      min_val_nll = last_run["min_val_nll"]
+      min_val_rmse = last_run["min_val_rmse"]
 
   if device == "cuda":
     model = model.to(device=torch.device("cuda"))
@@ -153,22 +164,17 @@ def train_gp(model, likelihood, train_x, train_y,
   if mll_type == "ELBO":
     mll = gpytorch.mlls.VariationalELBO(likelihood, model, num_data=train_y.size(0), beta=elbo_beta)
   elif mll_type == "PLL":
-    mll = gpytorch.mlls.PredictiveLogLikelihood(likelihood, model, num_data=train_y.size(0))
+    mll = gpytorch.mlls.PredictiveLogLikelihood(likelihood, model, num_data=train_y.size(0), beta=elbo_beta)
 
   total_step=0
+  kwargs = {'derivative_directions': None}
   start = time.time()
-  min_val_rmse = float("Inf")
-  min_val_nll = float("Inf")
-  for i in range(num_epochs):
+  for i in range(num_epochs-previous_epoch):
+    # time1 = time.time()
     for x_batch, y_batch in train_loader:
       if device == "cuda":
         x_batch = x_batch.cuda()
         y_batch = y_batch.cuda()
-      # redo derivative directions b/c batch size is not consistent
-      derivative_directions = torch.eye(dim)[:num_directions]
-      derivative_directions = derivative_directions.repeat(len(x_batch),1)
-      kwargs = {}
-      kwargs['derivative_directions'] = derivative_directions.to(x_batch.device)
 
       hyperparameter_optimizer.zero_grad()
       variational_optimizer.zero_grad()
@@ -191,23 +197,25 @@ def train_gp(model, likelihood, train_x, train_y,
           "loss": loss.item(), 
           "training_rmse": rmse,
           "training_nll": nll,     
-      }, step=i)
+      }, step=i+previous_epoch)
     if i % 50 == 0:
       min_val_rmse, min_val_nll = val_gp(model, likelihood, val_x, val_y,num_directions,
-                test_batch_size=1024, device=device, tracker=tracker, step=i, 
+                test_batch_size=1024, device=device, tracker=tracker, step=i+previous_epoch, 
                 min_val_rmse=min_val_rmse, min_val_nll=min_val_nll
                 )
       _, _, _, _, _ = eval_gp(model, likelihood, test_x, test_y,num_directions,
-                test_batch_size=1024, device=device, tracker=tracker, step=i)
+                test_batch_size=1024, device=device, tracker=tracker, step=i+previous_epoch)
       model.train()
       likelihood.train()
       print(f"Epoch: {i}; total_step: {total_step}, loss: {loss.item()}, nll: {nll}")
       sys.stdout.flush()
       if save_model:
-        state = {"model": model.state_dict(), "epoch": i}
+        state = {"model": model.state_dict(), "epoch": i, "min_val_rmse": min_val_rmse, "min_val_nll": min_val_nll}
         torch.save(state, f'{save_path}_{i}.model')
         print("Model saved to ", save_path)
-      
+    # time2 = time.time()
+    # print("Time cost of 1 epoch: ", time2-time1)  
+    # sys.stdout.flush()
   end = time.time()
   training_time = end - start
   if tracker is not None:
@@ -233,24 +241,15 @@ def eval_gp(model,likelihood,
   model.eval()
   likelihood.eval()
   
-  kwargs = {}
+  kwargs = {'derivative_directions': None}
   means = torch.tensor([0.])
   variances = torch.tensor([0.])
   start = time.time()
   num_derivative_directions = 1
   with torch.no_grad():
     for x_batch, _ in test_loader:
-      # redo derivative directions b/c batch size is not consistent
-    #   derivative_directions = torch.eye(dim)[:num_directions]
-      derivative_directions = torch.zeros((num_derivative_directions, dim)) 
-      for i in range(num_derivative_directions):
-          derivative_directions[i,i] = 1
-      derivative_directions = derivative_directions.repeat(len(x_batch),1)
       if device == "cuda":
         x_batch = x_batch.cuda()
-        derivative_directions = derivative_directions.cuda()
-
-      kwargs['derivative_directions'] = derivative_directions
       # predict
       preds = likelihood(model(x_batch,**kwargs))
       if device == "cuda":
@@ -272,7 +271,7 @@ def eval_gp(model,likelihood,
         "testing_nll":nll,
         "testing_time": testing_time,
     }, step=step)
-  print(f"Done testing! rmse: {rmse:.2e}, nll: {nll:.2e}, time: {testing_time:.2e} sec.")
+  # print(f"Done testing! rmse: {rmse:.2e}, nll: {nll:.2e}, time: {testing_time:.2e} sec.")
   
   return means, variances, rmse, nll, testing_time
 
@@ -294,24 +293,14 @@ def val_gp(model,likelihood,
   model.eval()
   likelihood.eval()
   
-  kwargs = {}
+  kwargs = {'derivative_directions': None}
   means = torch.tensor([0.])
   variances = torch.tensor([0.])
   start = time.time()
-  num_derivative_directions = 1
   with torch.no_grad():
     for x_batch, _ in val_loader:
-      # redo derivative directions b/c batch size is not consistent
-    #   derivative_directions = torch.eye(dim)[:num_directions]
-      derivative_directions = torch.zeros((num_derivative_directions, dim)) 
-      for i in range(num_derivative_directions):
-          derivative_directions[i,i] = 1
-      derivative_directions = derivative_directions.repeat(len(x_batch),1)
       if device == "cuda":
         x_batch = x_batch.cuda()
-        derivative_directions = derivative_directions.cuda()
-
-      kwargs['derivative_directions'] = derivative_directions
       # predict
       preds = likelihood(model(x_batch,**kwargs))
       if device == "cuda":
