@@ -144,6 +144,23 @@ def Dspline_K(x, u, theta, Drho_phi, Dtheta_phi, eps=1e-14):
     return torch.cat([DphiR_flat, Dtheta_phi(NR, theta=theta)], dim=1)
 
 
+def Dspline_K_all(x, u, theta, Drho_phi, Dtheta_phi, eps=1e-14):
+    m,d = u.shape
+    n,d = x.shape
+    R = u.reshape(1,m,d)-x.reshape(n,1,d)
+    NR = torch.norm(R, dim=2)
+    # NR = n by m
+    Dphi = Drho_phi(NR, theta=theta)
+    mask = NR > eps
+    Dphi[mask] = Dphi[mask] / NR[mask]
+    Dphi[torch.logical_not(mask)] = 0
+
+    DphiR = Dphi[:,:,None]*R
+    del R, Dphi
+    DphiR_flat = DphiR.reshape(n, m*d)
+    return torch.cat([DphiR_flat, Dtheta_phi(NR, theta=theta)], dim=1)
+
+
 def spline_eval(x, u, c, theta, phi, V=None):
     Kxu = spline_K(x, u, theta, phi, V=V)
     return torch.matmul(Kxu,c)
