@@ -4,9 +4,11 @@ sys.path.append("../")
 from splines import spline_K, Dspline_K
 from utils import check_cuda_memory
 
-def spline_rproj(u, xx, y, theta, phi, sigma=1e-3):
+def spline_rproj(u, xx, y, theta, outputscale, phi, sigma=1e-3):
     m = u.shape[0]
     Kxu = spline_K(xx, u, theta, phi)
+    Kxu = Kxu * outputscale
+
     A = torch.cat([Kxu, sigma*torch.eye(Kxu.shape[1]).to(device=Kxu.device)], dim=0)
     ybar = torch.cat([y, torch.zeros(m).to(device=y.device)])
     c = torch.linalg.lstsq(A, ybar).solution
