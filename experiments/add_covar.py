@@ -59,11 +59,11 @@ if data_loader > 0:
     dim = train_x.shape[1]
 else:
     train_x, train_y, val_x, val_y, test_x, test_y = load_data_old(obj_name, dim, seed=seed)
-if device == "cuda":
-    train_x = train_x.cuda()
-    train_y = train_y.cuda()
-    test_x = test_x.cuda()
-    test_y = test_y.cuda()
+# if device == "cuda":
+#     train_x = train_x.cuda()
+#     train_y = train_y.cuda()
+#     test_x = test_x.cuda()
+    # test_y = test_y.cuda()
 print(f"Dataset: {obj_name}, train_n: {train_x.shape[0]}  test_n:{test_x.shape[0]}  num_inducing: {num_inducing}.")
 
 
@@ -71,8 +71,8 @@ print(f"Dataset: {obj_name}, train_n: {train_x.shape[0]}  test_n:{test_x.shape[0
 path = f'../results/{obj_name}-{dim}_{method}_m{num_inducing}_{expid}_{seed}.pkl'
 res = pkl.load(open(path, 'rb'))
 print("reading results from :", path)
-u = res["u"].to(device=train_x.device)
-c = res["c"].to(device=train_x.device)
+u = res["u"].to(device=train_x.device).cpu()
+c = res["c"].to(device=train_x.device).cpu()
 theta = res["theta"]
 sigma = res["sigma"]
 m = u.shape[0] # number of inducing points
@@ -84,19 +84,35 @@ print(f"Using {method}, RMS: {r:.4e}, stored_r: {res['r']:.4e} norm(c): {torch.n
 
 # compute covar and store 
 Kuu = spline_K(u, u, theta, phi)
+# pkl.dump(Kuu, open("./Kuu.pkl", "wb"))
+# print("finish Kuu")
+# sys.stdout.flush()
 jitter = torch.diag(1e-8*torch.ones(Kuu.shape[0])).to(device=Kuu.device)
 L = torch.linalg.cholesky(Kuu + jitter)
+# pkl.dump(L, open("./L.pkl", "wb"))
+# print("finish L")
+# sys.stdout.flush()
+
 Kux = spline_K(u, train_x, theta, phi)
-Kxu = Kux.T
+# pkl.dump(L, open("./L.pkl", "wb"))
+# print("finish L")
+# sys.stdout.flush()
 Ktt = spline_K(test_x, test_x, theta, phi)
 jitter2 = torch.diag(1e-4*torch.ones(Ktt.shape[0])).to(device=Ktt.device)
+# pkl.dump(Ktt, open("./Ktt.pkl", "wb"))
+# print("finish Ktt")
+# sys.stdout.flush()
 Ktu = spline_K(test_x, u, theta, phi)
 Kut = Ktu.T
+# pkl.dump(Ktt, open("./Kut.pkl", "wb"))
+# print("finish Kut")
+# sys.stdout.flush()
+
 
 pred_means = spline_eval(test_x, u, c, theta, phi)
 optimal_mean = torch.matmul(L.T, c)
 
-M = Kuu + Kux @ Kxu/sigma/sigma
+M = Kuu + Kux @ (Kux.T)/sigma/sigma
 Sopt = Kuu @ (torch.linalg.solve(M, Kuu)) # optimal variational covariance
 Sbar = L.T @ (torch.linalg.solve(M, L)) # whitened Sopt
 interp_term = torch.linalg.solve(L, Kut)
