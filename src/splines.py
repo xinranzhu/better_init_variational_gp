@@ -24,6 +24,11 @@ def spline_K(x, u, theta, phi, V=None):
                 Kxu2 = torch.cat([Kxu2, KV.reshape(n, Vi.shape[0])], dim=1)
         return Kxu2
 
+
+def spline_K_with_outputscale(x, u, theta, outputscale, phi, V=None):
+    return spline_K(x, u, theta, phi, V) * outputscale
+
+
 def Qxy(x, y, W, D, theta, phi):
     """
     helper function to compute block Qxy, 
@@ -128,23 +133,6 @@ def spline_Kuu(u, theta, phi, V=None):
 
 
 def Dspline_K(x, u, theta, Drho_phi, Dtheta_phi, eps=1e-14):
-    m,d = u.shape
-    n,d = x.shape
-    R = u.reshape(1,m,d)-x.reshape(n,1,d)
-    NR = torch.norm(R, dim=2)
-    # NR = n by m
-    Dphi = Drho_phi(NR, theta=theta)
-    mask = NR > eps
-    Dphi[mask] = Dphi[mask] / NR[mask]
-    Dphi[torch.logical_not(mask)] = 0
-
-    DphiR = Dphi[:,:,None]*R
-    del R, Dphi
-    DphiR_flat = DphiR.reshape(n, m*d)
-    return torch.cat([DphiR_flat, Dtheta_phi(NR, theta=theta)], dim=1)
-
-
-def Dspline_K_all(x, u, theta, Drho_phi, Dtheta_phi, eps=1e-14):
     m,d = u.shape
     n,d = x.shape
     R = u.reshape(1,m,d)-x.reshape(n,1,d)
