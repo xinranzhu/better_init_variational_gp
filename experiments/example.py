@@ -20,20 +20,20 @@ import gpytorch
 
 
 def softplus(x):
-    # return x
-    return math.exp(x)
+    return x
+    # return math.exp(x)
     # return torch.nn.functional.softplus(torch.tensor(x)).item()
 
 
 def inv_softplus(x):
-    # return x
-    return math.log(x)
+    return x
+    # return math.log(x)
     # return gpytorch.utils.transforms.inv_softplus(torch.tensor(x)).item()
 
 
 def sigmoid(x):
-    # return 1.
-    return math.exp(x)
+    return 1.
+    # return math.exp(x)
     # return torch.sigmoid(torch.tensor(x)).item()
 
 
