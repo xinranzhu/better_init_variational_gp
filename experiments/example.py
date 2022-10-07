@@ -23,8 +23,10 @@ parser.add_argument("--dim", type=int, default=2)
 parser.add_argument("--expid", type=str, default="TEST")
 parser.add_argument("--kernel_type", type=str, default="SE")
 parser.add_argument("--num_inducing", type=int, default=50)
-parser.add_argument("--seed", type=int, default=1234)
+parser.add_argument("--seed", type=int, default=0)
 parser.add_argument("--init", type=str, default="kmeans")
+parser.add_argument("--noise", type=float, default=0.01)
+
 
 args =  vars(parser.parse_args())
 obj_name = args["obj_name"]
@@ -65,11 +67,13 @@ else:
 if device == "cuda":
     train_x = train_x.cuda()
     train_y = train_y.cuda()
+    # test_x = test_x.cuda()
+    # test_y = test_y.cuda()
     
 print(f"Dataset: {obj_name}, train_n: {train_x.shape[0]}  test_n:{test_x.shape[0]}  num_inducing: {num_inducing}.")
 
 theta_init = 2.0 
-sigma = 0.1
+sigma = math.sqrt(args["noise"])
 rtol = 1e-4
 tau = 0.05
 theta_penalty = 10.0
@@ -124,7 +128,9 @@ r = rms_vs_truth(u_init, c_init, theta_init, phi, test_x, test_y)
 args["r"] = r
 print(f"Using {method}, RMS: {r:.4e}  norm(c): {torch.norm(c_init):.2f}  time cost: {time_init:.2f} sec.")
 sys.stdout.flush()
-store(obj_name, method, num_inducing, c_init, u_init, theta_init, phi, sigma, expid=expid, args=args)
+store(obj_name, method, num_inducing, c_init.cpu(), u_init.cpu(), theta_init, phi, sigma, 
+    expid=expid, args=args, 
+    train_x=train_x.cpu(), test_x=test_x, test_y=test_y)
 
 
 
@@ -171,9 +177,11 @@ time_lm = end-start
 args["time"] = time_lm
 r = rms_vs_truth(ulm, clm, thetalm, phi, test_x, test_y)
 args["r"] = r
-print(f"Uisng {method}, RMS: {r:.4e}  norm(c): {torch.norm(clm):.2f}  time cost: {time_lm:.2f} sec.")
+print(f"Using {method}, RMS: {r:.4e}  norm(c): {torch.norm(clm):.2f}  time cost: {time_lm:.2f} sec.")
+
 sys.stdout.flush()
-store(obj_name, method, num_inducing, clm, ulm, thetalm, phi, sigma, expid=expid, args=args)
+store(obj_name, method, num_inducing, clm.cpu(), ulm.cpu(), thetalm, phi, sigma, expid=expid, args=args, 
+    train_x=train_x.cpu(), test_x=test_x, test_y=test_y)
 
 
 
