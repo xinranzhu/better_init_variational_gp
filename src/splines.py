@@ -149,20 +149,20 @@ def Dspline_K(x, u, theta, Drho_phi, Dtheta_phi, eps=1e-14):
     return torch.cat([DphiR_flat, Dtheta_phi(NR, theta=theta)], dim=1)
 
 
-def spline_eval(x, u, c, theta, phi, V=None):
-    Kxu = spline_K(x, u, theta, phi, V=V)
+def spline_eval(x, u, c, theta, phi, outputscale=1., V=None):
+    Kxu = spline_K(x, u, theta, phi, V=V) * outputscale
     return torch.matmul(Kxu,c)
 
-def spline_fit(u, x, y, theta, phi, sigma=0., V=None):
+def spline_fit(u, x, y, theta, phi, outputscale=1., sigma=0., V=None):
     Kxu = spline_K(x, u, theta, phi, V=V)
     m = Kxu.shape[1]
     if sigma == 0.:
         return torch.linalg.lstsq(Kxu,y).solution.cpu()
     else:
         if V is None:
-            Kuu = spline_K(u, u, theta, phi)
+            Kuu = spline_K(u, u, theta, phi) * outputscale
         else:
-            Kuu = spline_Kuu(u, theta, phi, V=V)
+            Kuu = spline_Kuu(u, theta, phi, V=V) * outputscale
         ybar = torch.cat([y, torch.zeros(m).to(device=y.device)])
         jitter =  torch.diag(1e-8*torch.ones(Kuu.shape[0])).to(device=Kuu.device)
         U = torch.linalg.cholesky(Kuu+jitter, upper=True)
@@ -170,10 +170,10 @@ def spline_fit(u, x, y, theta, phi, sigma=0., V=None):
         return torch.linalg.lstsq(K,ybar).solution
 
 
-def rms_vs_truth(u, c, theta, phi, xx_truth, y_truth, V=None):
+def rms_vs_truth(u, c, theta, phi, xx_truth, y_truth, outputscale=1., V=None):
     u = u.to(device=xx_truth.device)
     c = c.to(device=xx_truth.device)
-    y_pred = spline_eval(xx_truth, u, c, theta, phi, V=V)
+    y_pred = spline_eval(xx_truth, u, c, theta, phi, outputscale=outputscale, V=V)
     num = torch.norm(y_truth - y_pred)
     denorm = math.sqrt(len(y_truth))
     return num/denorm

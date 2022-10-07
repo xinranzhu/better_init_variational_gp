@@ -10,10 +10,31 @@ sys.path.append("../src")
 sys.path.append("../src/opt")
 from splines import spline_K, Dspline_K, spline_fit, rms_vs_truth, spline_eval
 from spline_rproj import spline_Jproj, spline_rproj
+from spline_rproj_all import spline_Jproj_all, spline_rproj_all
 from fwd_selection import spline_forward_regression
 from levenberg_marquardt import levenberg_marquardt
+from levenberg_marquardt_all import levenberg_marquardt_all
 from kernels import SEKernel # TODO: add matern
 from utils import store, load_data, load_data_old
+import gpytorch
+
+
+def softplus(x):
+    # return x
+    return math.exp(x)
+    # return torch.nn.functional.softplus(torch.tensor(x)).item()
+
+
+def inv_softplus(x):
+    # return x
+    return math.log(x)
+    # return gpytorch.utils.transforms.inv_softplus(torch.tensor(x)).item()
+
+
+def sigmoid(x):
+    # return 1.
+    return math.exp(x)
+    # return torch.sigmoid(torch.tensor(x)).item()
 
 
 # TODO: add more args
@@ -142,6 +163,23 @@ def Jproj_test(u, theta):
     return spline_Jproj(u, train_x, train_y, theta,
        phi, Drho_phi, Dtheta_phi, sigma=sigma)
 
+def fproj_all_test(u, theta, outputscale, sigma):
+    if u.dim() == 1:
+        u = u.reshape(1,-1)
+    u = u.to(train_x.device)
+    return spline_rproj_all(u, train_x, train_y, softplus(theta), softplus(outputscale), phi, sigma=softplus(sigma))
+
+def Jproj_all_test(u, theta, outputscale, sigma):
+    if u.dim() == 1:
+        u = u.reshape(1,-1)
+    u = u.to(train_x.device)
+    J = spline_Jproj_all(u, train_x, train_y, softplus(theta), softplus(outputscale),
+       phi, Drho_phi, Dtheta_phi, sigma=softplus(sigma))
+    J[:, -3] *= sigmoid(theta)
+    J[:, -2] *= sigmoid(outputscale)
+    J[:, -1] *= sigmoid(sigma)
+    return J
+
 if theta_penalty > 0:
     def fproj_test(u, theta):
         if u.dim() == 1:
@@ -163,13 +201,24 @@ if theta_penalty > 0:
 
 method = f"lm-{init}"
 start = time.time()
-ulm, thetalm, norm_hist = levenberg_marquardt(fproj_test, Jproj_test, u_init, theta_init,
+
+# ulm, thetalm, norm_hist = levenberg_marquardt(fproj_test, Jproj_test, u_init, theta_init,
+#     rtol=rtol, tau=tau, nsteps=lm_nsteps)
+# outputscale = 1.
+# sigma = 0.1
+
+ulm, thetalm, outputscale, sigma, norm_hist = levenberg_marquardt_all(fproj_all_test, Jproj_all_test, u_init,
+    inv_softplus(theta_init), inv_softplus(1.), inv_softplus(0.1),
     rtol=rtol, tau=tau, nsteps=lm_nsteps)
-clm = spline_fit(ulm, train_x, train_y, thetalm, phi, sigma=sigma)
+thetalm = softplus(thetalm)
+outputscale = softplus(outputscale)
+sigma = softplus(sigma)
+
+clm = spline_fit(ulm, train_x, train_y, thetalm, phi, outputscale=outputscale, sigma=sigma)
 end = time.time()
 time_lm = end-start
 args["time"] = time_lm
-r = rms_vs_truth(ulm, clm, thetalm, phi, test_x, test_y)
+r = rms_vs_truth(ulm, clm, thetalm, phi, train_x, train_y, outputscale=outputscale)
 args["r"] = r
 print(f"Uisng {method}, RMS: {r:.4e}  norm(c): {torch.norm(clm):.2f}  time cost: {time_lm:.2f} sec.")
 sys.stdout.flush()

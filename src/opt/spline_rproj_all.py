@@ -4,6 +4,23 @@ sys.path.append("../")
 from splines import spline_K, spline_K_with_outputscale, Dspline_K
 from utils import check_cuda_memory
 
+from torch import sigmoid
+from torch.nn.functional import softplus
+from gpytorch.utils.transforms import inv_softplus
+
+
+def softplus_scalar(x):
+    return softplus(torch.tensor(x)).item()
+
+
+def sigmoid_scalar(x):
+    return sigmoid(torch.tensor(x)).item()
+
+
+def inv_softplus_scalar(x):
+    return inv_softplus(torch.tensor(x)).item()
+
+
 def spline_rproj_all(u, xx, y, theta, outputscale, phi, sigma=1e-3):
     m = u.shape[0]
     Kxu = spline_K_with_outputscale(xx, u, theta, outputscale, phi)
@@ -146,50 +163,54 @@ if __name__ == "__main__":
         epsilon = 1e-6
 
         f_theta_left = spline_rproj_all(
-            u, x, y, theta=theta - epsilon, outputscale=outputscale,
+            u, x, y, theta=softplus_scalar(theta - epsilon), outputscale=softplus_scalar(outputscale),
             phi=phi,
-            sigma=sigma,
+            sigma=softplus_scalar(sigma),
         )
         f_theta_right = spline_rproj_all(
-            u, x, y, theta=theta + epsilon, outputscale=outputscale,
+            u, x, y, theta=softplus_scalar(theta + epsilon), outputscale=softplus_scalar(outputscale),
             phi=phi,
-            sigma=sigma,
+            sigma=softplus_scalar(sigma),
         )
         d_theta = (f_theta_right - f_theta_left) / 2 / epsilon
 
         f_outputscale_left = spline_rproj_all(
-            u, x, y, theta=theta, outputscale=outputscale - epsilon,
+            u, x, y, theta=softplus_scalar(theta), outputscale=softplus_scalar(outputscale - epsilon),
             phi=phi,
-            sigma=sigma,
+            sigma=softplus_scalar(sigma),
         )
         f_outputscale_right = spline_rproj_all(
-            u, x, y, theta=theta, outputscale=outputscale + epsilon,
+            u, x, y, theta=softplus_scalar(theta), outputscale=softplus_scalar(outputscale + epsilon),
             phi=phi,
-            sigma=sigma,
+            sigma=softplus_scalar(sigma),
         )
         d_outputscale = (f_outputscale_right - f_outputscale_left) / 2 / epsilon
 
         f_sigma_left = spline_rproj_all(
-            u, x, y, theta=theta, outputscale=outputscale,
+            u, x, y, theta=softplus_scalar(theta), outputscale=softplus_scalar(outputscale),
             phi=phi,
-            sigma=sigma - epsilon,
+            sigma=softplus_scalar(sigma - epsilon),
         )
         f_sigma_right = spline_rproj_all(
-            u, x, y, theta=theta, outputscale=outputscale,
+            u, x, y, theta=softplus_scalar(theta), outputscale=softplus_scalar(outputscale),
             phi=phi,
-            sigma=sigma + epsilon,
+            sigma=softplus_scalar(sigma + epsilon),
         )
         d_sigma = (f_sigma_right - f_sigma_left) / 2 / epsilon
 
         return d_theta, d_outputscale, d_sigma
 
-    d_theta, d_outputscale, d_sigma = finite_difference(1., 3.5, 1.2)
+    d_theta, d_outputscale, d_sigma = finite_difference(2.2, 3.5, 1.2)
 
     J = spline_Jproj_all(
-        u, x, y, theta=1., outputscale=3.5,
+        u, x, y, theta=softplus_scalar(2.2), outputscale=softplus_scalar(3.5),
         phi=phi, Drho_phi=Drho_phi, Dtheta_phi=Dtheta_phi,
-        sigma=1.2,
+        sigma=softplus_scalar(1.2),
     )
+    J[:, -3] *= sigmoid_scalar(2.2)
+    J[:, -2] *= sigmoid_scalar(3.5)
+    J[:, -1] *= sigmoid_scalar(1.2)
+
     assert torch.allclose(J[:, -3], d_theta)
     assert torch.allclose(J[:, -2], d_outputscale)
     assert torch.allclose(J[:, -1], d_sigma)
