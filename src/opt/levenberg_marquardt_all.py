@@ -3,33 +3,37 @@ import torch
 sys.path.append("../")
 from utils import check_cuda_memory
 
-from torch.nn.functional import softplus, sigmoid
+from torch import sigmoid
+from torch.nn.functional import softplus
 from gpytorch.utils.transforms import inv_softplus
+
+
+def softplus_scalar(x):
+    return 2 * x
+    # return softplus(torch.tensor(x)).item()
+
+
+def sigmoid_scalar(x):
+    return 1.
+    # return sigmoid(torch.tensor(x)).item()
+
+
+def inv_softplus_scalar(x):
+    return x
+    # return inv_softplus(torch.tensor(x)).item()
 
 
 def levenberg_marquardt_all(f, J, x, theta, outputscale, sigma, nsteps=100, rtol=1e-8, tau=1e-3):
     """
     By default, theta, outputscale, and sigma go through softplus transformation.
     """
-    if transform:
-        theta = inv_softplus(theta)
-        outputscale = inv_softplus(outputscale)
-        sigma = inv_softplus(sigma)
-
     # Evaluate everything at the initial point
     x = torch.clone(x)
     xnew = torch.clone(x)
     theta_new = theta
 
-    if transform:
-        fx = f(x, softplus(theta), softplus(outputscale), softplus(sigma))
-        Jx = J(x, softplus(theta), softplus(outputscale), softplus(sigma))
-        Jx[:, -3] *= sigmoid(theta)
-        Jx[:, -2] *= sigmoid(outputscale)
-        Jx[:, -1] *= sigmoid(sigma)
-    else:
-        fx = f(x, theta, outputscale, sigma)
-        Jx = J(x, theta, outputscale, sigma)
+    fx = f(x, theta, outputscale, sigma)
+    Jx = J(x, theta, outputscale, sigma)
 
     Hx = torch.matmul(Jx.T, Jx)
     
@@ -43,7 +47,7 @@ def levenberg_marquardt_all(f, J, x, theta, outputscale, sigma, nsteps=100, rtol
         # print(f"k: {k+1}, rnorm: {rnorm}, mu={mu}, v={v}")
         norm_hist.append(rnorm.item())
         if rnorm < rtol:
-            return x, theta
+            return x, theta, outputscale, sigma
         
         # Compute a proposed step and re-evaluate residual vector
         D = torch.diag(mu*torch.ones(Hx.shape[0])).to(device=Hx.device)
@@ -55,10 +59,7 @@ def levenberg_marquardt_all(f, J, x, theta, outputscale, sigma, nsteps=100, rtol
         outputscale_new = outputscale + p[-2].item()
         sigma_new = sigma + p[-1].item()
 
-        if transform:
-            fxnew = f(xnew, softplus(theta_new), softplus(outputscale_new), softplus(sigma_new))
-        else:    
-            fxnew = f(xnew, theta_new, outputscale_new, sigma_new)
+        fxnew = f(xnew, theta_new, outputscale_new, sigma_new)
         
         # Compute the gain ratio
         rho = (torch.norm(fx)**2 - torch.norm(fxnew)**2) / (torch.norm(fx)**2 - torch.norm(fx+torch.matmul(Jx,p))**2)
@@ -75,13 +76,7 @@ def levenberg_marquardt_all(f, J, x, theta, outputscale, sigma, nsteps=100, rtol
             sigma = sigma_new
             fx = fxnew
             del fxnew, xnew, outputscale_new, sigma_new
-            if transform:
-                Jx = J(x, softplus(theta), softplus(outputscale), softplus(sigma))
-                Jx[:, -3] *= sigmoid(theta)
-                Jx[:, -2] *= sigmoid(outputscale)
-                Jx[:, -1] *= sigmoid(sigma)
-            else:
-                Jx = J(x, theta, outputscale, sigma)
+            Jx = J(x, theta, outputscale, sigma)
             Hx = torch.matmul(Jx.T, Jx)
             # check_cuda_memory()
             # Reset re-scaling parameter, update damping
@@ -91,7 +86,7 @@ def levenberg_marquardt_all(f, J, x, theta, outputscale, sigma, nsteps=100, rtol
             # Rescale damping5tb
             mu = mu*v
             v = 2*v
-    
+
     return x, theta, outputscale, sigma, norm_hist
     
  
