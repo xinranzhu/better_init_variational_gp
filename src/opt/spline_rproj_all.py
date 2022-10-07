@@ -70,7 +70,7 @@ def spline_Jproj_all(u, xx, y, theta, outputscale, phi, Drho_phi, Dtheta_phi, si
     res = torch.matmul(Q1, -T1)
     res[:n] -= JAc
 
-    ret = torch.zeros((n + m, m * d + 3))
+    ret = torch.zeros((n + m, m * d + 3), device=u.device)
     ret[:, :m * d + 1] = res
 
     # gradient w.r.t. outputscale
