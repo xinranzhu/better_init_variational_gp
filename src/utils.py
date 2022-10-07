@@ -5,18 +5,22 @@ from scipy.io import loadmat
 from math import floor
 import numpy as np
 import sys
-from splines import spline_K, spline_Kuu
+from splines import spline_K, spline_Kuu, spline_eval
 
 def store(obj_name, method_name, npoints, c, u, theta, phi, sigma, 
-    expid=None, args=None, V=None, num_cut=None):
+    expid=None, args=None, V=None, num_cut=None, train_x=None, test_x=None, test_y=None):
 
     m, dim = u.shape
     res = {"u": u.cpu(), "theta": theta, "sigma": sigma}
     if V is None:
         Kuu = spline_K(u, u, theta, phi)
+        Kux = spline_K(u, train_x, theta, phi)
+        Kxu = Kux.T
     else:
         method_name = method_name + "-directions"
         Kuu = spline_Kuu(u, theta, phi, V=V)
+        Kux = spline_K(u, train_x, theta, phi, V=V)
+        Kxu = Kux.T
         # process V_mat and inducing_values_num
         V_mat = torch.empty((0, dim))
         inducing_values_num = torch.zeros(m, dtype=int)
@@ -28,18 +32,37 @@ def store(obj_name, method_name, npoints, c, u, theta, phi, sigma,
 
     jitter = torch.diag(1e-8*torch.ones(Kuu.shape[0])).to(device=Kuu.device)
     L = torch.linalg.cholesky(Kuu + jitter)
-    c = torch.matmul(L.T, c)
+    pred_means = spline_eval(test_x, u, c, theta, phi)
+    c = torch.matmul(L.T, c) # whitened mean 
     res["c"] = c.cpu()
+
+    # compute the whitened covariance 
+    Ktt = spline_K(test_x, test_x, theta, phi)
+    jitter2 = torch.diag(1e-4*torch.ones(Ktt.shape[0])).to(device=Ktt.device)
+    Ktu = spline_K(test_x, u, theta, phi)
+    Kut = Ktu.T
+    M = Kuu + Kux @ Kxu/sigma/sigma
+    Sopt = Kuu @ (torch.linalg.solve(M, Kuu)) # optimal variational covariance
+    Sbar = L.T @ (torch.linalg.solve(M, L)) # whitened Sopt
+    interp_term = torch.linalg.solve(L, Kut)
+    mid_term = Sbar - torch.eye(m).to(device=Sbar.device)
+
+    pred_covar = Ktt + jitter2 + interp_term.T @ mid_term @ interp_term
+    # compute nll for verification
+    stds = torch.sqrt(torch.diag(pred_covar))
+    nll = - torch.distributions.Normal(pred_means, stds).log_prob(test_y).mean()
+
+    res["Sbar"] = Sbar
+    res["L"] = L
     if args:
-        res.update(args)
-     
+        res.update(args) 
     seed = args["seed"]
     if num_cut is None:
         path = f'../results/{obj_name}-{dim}_{method_name}_m{npoints}_{expid}_{seed}.pkl'
     else:
         path = f'../results/{obj_name}-{dim}_{method_name}_m{npoints}_{expid}_{seed}_{num_cut}.pkl'
     pkl.dump(res, open(path, 'wb'))
-    print("Results saved to ", path)
+    print(f"nll: {nll}, res saved to {path}.")
 
 def load_data(data_dir='../uci/', dataset="3droad", seed=0):
     torch.manual_seed(seed) 
