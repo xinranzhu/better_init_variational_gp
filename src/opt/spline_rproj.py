@@ -28,7 +28,6 @@ def spline_Jproj(u, xx, y, theta, phi, Drho_phi, Dtheta_phi, sigma=1e-3):
     JA_ex = torch.cat([JA, torch.zeros(m, m*d+m).to(device=JA.device)], dim=0)
     z = torch.matmul(JA_ex.T, r)
     JAtr = torch.zeros(m, m*d+1).to(device=JA.device)
-    # print("detelting JA_ex, r")
     # check_cuda_memory()
     del JA_ex, r
     # check_cuda_memory()
