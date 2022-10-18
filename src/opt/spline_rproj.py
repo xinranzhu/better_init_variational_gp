@@ -4,6 +4,26 @@ sys.path.append("../")
 from splines import spline_K, Dspline_K
 from utils import check_cuda_memory
 
+
+def residual(u, x, y, kernel, sigma):
+    n = x.size(0)
+    m = u.size(0)
+
+    Kxu = kernel(x, u)
+    A = torch.cat(
+        [Kxu, sigma * torch.eye(m, device=u.device)],
+        dim=-2,
+    )
+    ybar = torch.cat([y, y.new_zeros(m)], dim=-1)
+
+    c = torch.linalg.lstsq(A, ybar, rcond=None).solution
+    return ybar - A @ c
+
+
+def jacobian(u, x, y, kernel, sigma):
+    r = residual(u, x, y, kernel, sigma)
+
+
 def spline_rproj(u, xx, y, theta, phi, sigma=1e-3):
     m = u.shape[0]
     Kxu = spline_K(xx, u, theta, phi)
