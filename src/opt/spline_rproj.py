@@ -4,24 +4,36 @@ sys.path.append("../")
 from splines import spline_K, Dspline_K
 from utils import check_cuda_memory
 
-
-def residual(u, x, y, kernel, sigma):
-    n = x.size(0)
-    m = u.size(0)
-
-    Kxu = kernel(x, u)
-    A = torch.cat(
-        [Kxu, sigma * torch.eye(m, device=u.device)],
-        dim=-2,
-    )
-    ybar = torch.cat([y, y.new_zeros(m)], dim=-1)
-
-    c = torch.linalg.lstsq(A, ybar, rcond=None).solution
-    return ybar - A @ c
+import functorch
+from functorch import make_functional_with_buffers
+import gpytorch
 
 
-def jacobian(u, x, y, kernel, sigma):
-    r = residual(u, x, y, kernel, sigma)
+class KernelFunctional():
+    def __init__(self, kernel):
+        self.func, _, self.buffers = make_functional_with_buffers(kernel)
+
+    def residual(self, u, x, y, params, sigma):
+        """
+        y is of size (n,)
+        """
+        with gpytorch.settings.trace_mode(), gpytorch.settings.lazily_evaluate_kernels(False):
+            m = u.size(0)
+
+            func_nl = lambda params, buffers, x1, x2: self.func(params, buffers, x1, x2).evaluate()
+
+            Kxu = func_nl(params, self.buffers, x, u)
+            A = torch.cat(
+                [Kxu, sigma * torch.eye(m, device=u.device)],
+                dim=-2,
+            )
+            ybar = torch.cat([y, y.new_zeros(m)], dim=-1)
+            c = torch.linalg.lstsq(A, ybar.unsqueeze(-1), rcond=None).solution.squeeze()
+            return ybar - A @ c
+
+    def jacobian(self, u, x, y, params, sigma):
+        # res_func = lambda u, params, sigma: self.residual(u, x, y, params, sigma)
+        return functorch.jacrev(self.residual, argnums=(0, 3, 4))(u, x, y, params, sigma)
 
 
 def spline_rproj(u, xx, y, theta, phi, sigma=1e-3):
@@ -32,6 +44,7 @@ def spline_rproj(u, xx, y, theta, phi, sigma=1e-3):
     c = torch.linalg.lstsq(A, ybar).solution
     r = ybar - torch.matmul(A, c)
     return r
+
 
 def spline_Jproj(u, xx, y, theta, phi, Drho_phi, Dtheta_phi, sigma=1e-3):
     m, d = u.shape
@@ -83,3 +96,20 @@ def spline_Jproj(u, xx, y, theta, phi, Drho_phi, Dtheta_phi, sigma=1e-3):
 
     return res
 
+
+if __name__ == "__main__":
+    import gpytorch
+    functional = KernelFunctional(gpytorch.kernels.RBFKernel())
+
+    u = torch.randn(3, 2)
+    x = torch.randn(5, 2)
+    y = torch.randn(5)
+    sigma = torch.tensor([1e-2])
+
+    params = (torch.tensor([0.6]),)
+
+    residual = functional.residual(u, x, y, params, sigma)
+    print(residual.shape)
+
+    jacobian = functional.jacobian(u, x, y, params, sigma)
+    print(jacobian[0].shape, jacobian[1][0].shape, jacobian[2].shape)
