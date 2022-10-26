@@ -1,21 +1,47 @@
 import sys
 import torch 
 sys.path.append("../")
-from utils import check_cuda_memory
+# from utils import check_cuda_memory
 
 from spline_rproj import ResidualFunctional
-import functorch
 
-def levenberg_marquardt(u, x, y, kernel, sigma, nsteps=100, rtol=1e-8, tau=1e-3):
+
+def concatenate(u, lengthscale):
+    inputs = u.view(-1)
+    inputs = torch.cat((inputs, lengthscale), dim=-1)
+    return inputs
+
+
+def extract(inputs, m, d):
+    u = inputs[:m * d].view(m, d)
+
+    lengthscale = inputs[m * d]
+    lengthscale = torch.nn.functional.softplus(lengthscale)
+
+    return u, lengthscale
+
+
+@torch.no_grad
+def levenberg_marquardt(
+    u, x, y, kernel, sigma,
+    opt_ls=True, opt_os=False, opt_sigma=False,
+    nsteps=100, rtol=1e-8, tau=1e-3):
     """
     Args
-        u
+        u (m x d tensor): initialization of inducing points
+        x (n x d tensor): training data
+        y ((n,) tensor): training labels
+        kernel (nn.module): the kernel function, e.g. ScaleKernel(RBFKernel())
     """
-    params = kernel.parameters()
-    functional = ResidualFunctional(kernel)
+    raw_lengthscale = kernel.base_kernel.raw_lengthscale
+
+    functional = ResidualFunctional(
+        kernel, m=u.size(0), d=u.size(1),
+        outputscale=kernel.outputscale, sigma=sigma,
+    )
 
     inputs = torch.cat(
-        (u.view(-1), lengthscale, outputscale, sigma),
+        (u.view(-1), lengthscale=params[1]),
         dim=-1
     )
 
@@ -39,21 +65,21 @@ def levenberg_marquardt(u, x, y, kernel, sigma, nsteps=100, rtol=1e-8, tau=1e-3)
         # Compute a proposed step and re-evaluate residual vector
         D = mu * torch.eye(hessian.size(0), device=hessian.device)
         p = torch.linalg.solve(hessian + D, -g)
-        
-        xnew_flatten = x.flatten() + p[:-1]
-        xnew = xnew_flatten.reshape(x.shape)
-        theta_new = theta + p[-1].item()
-        residual = f(xnew, theta_new)
+
+        updated_inputs = inputs + p
+        updated_residual = functional.residual(updated_inputs, x, y)
         
         # Compute the gain ratio
-        rho = (torch.linalg.norm(residual) ** 2 - torch.norm(fxnew) ** 2) / (torch.norm(fx)**2 - torch.norm(fx+torch.matmul(Jx,p))**2).item()
+        rho = (residual.square().sum() - updated_residual.square().sum()) \
+            / (residual.square().sum() - (residual + jacobian @ p).square().sum()).item()
+
         if rho > 0: # Success!
-            x = xnew
-            theta = theta_new
-            fx = fxnew
-            del fxnew, xnew
-            jacobian = functional.jacobian(u, x, y, params, sigma)
+            inputs = updated_inputs
+            residual = updated_residual
+
+            jacobian = functional.jacobian(u, x, y)
             hessian = jacobian.T @ jacobian
+
             # Reset re-scaling parameter, update damping
             mu = mu * max(1. / 3., 1. - 2. * (rho - 1.) ** 3)
             v = 2.0
@@ -62,7 +88,7 @@ def levenberg_marquardt(u, x, y, kernel, sigma, nsteps=100, rtol=1e-8, tau=1e-3)
             mu = mu * v
             v = 2 * v
     
-    return x, theta, norm_hist
+    return inputs, norm_hist
 
 
 def _levenberg_marquardt(f, J, x, theta, nsteps=100, rtol=1e-8, tau=1e-3):

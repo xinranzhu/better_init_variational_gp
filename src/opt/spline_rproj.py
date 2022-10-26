@@ -12,24 +12,16 @@ import gpytorch
 class ResidualFunctional():
     def __init__(self,
         kernel, m, d,
-        lengthscale=None, outputscale=None, sigma=None
+        outputscale=None, sigma=None
     ):
         self.func, _, self.buffers = make_functional_with_buffers(kernel)
         self.m = m
         self.d = d
 
-        """
-        If self.lengthscale == None, then we optimize lengthscale.
-        Otherwise we use the fixed self.lengthscale
-        """
-        self.lengthscale = lengthscale
         self.outputscale = outputscale
         self.sigma = sigma
 
     def _residual(self, u, x, y, params, sigma):
-        """
-        y is of size (n,)
-        """
         with gpytorch.settings.trace_mode(), gpytorch.settings.lazily_evaluate_kernels(False):
             m = u.size(0)
 
@@ -47,16 +39,9 @@ class ResidualFunctional():
     def residual(self, inputs, x, y):
         u = inputs[:self.m * self.d].view(self.m, self.d)
 
-        lengthscale = inputs[self.m * self.d] if self.lengthscale is None else self.lengthscale
-        lengthscale = torch.nn.functional.softplus(lengthscale)
+        lengthscale = torch.nn.functional.softplus(inputs[-1])
 
-        outputscale = inputs[self.m * self.d + 1] if self.outputscale is None else self.outputscale
-        outputscale = torch.nn.functional.softplus(outputscale)
-
-        sigma = inputs[self.m * self.d + 2] if self.sigma is None else self.sigma
-        sigma = torch.nn.functional.softplus(sigma)
-
-        return self._residual(u, x, y, (lengthscale, outputscale), sigma)
+        return self._residual(u, x, y, (lengthscale, self.outputscale), self.sigma)
 
     def jacobian(self, inputs, x, y):
         return functorch.jacrev(self.residual, argnums=0)(inputs, x, y)
