@@ -13,10 +13,10 @@ def concatenate(u, lengthscale):
 
 
 def extract(inputs, m, d):
-    u = inputs[:m * d].view(m, d)
+    assert inputs.size(0) == m * d + 1
 
-    lengthscale = inputs[m * d]
-    lengthscale = torch.nn.functional.softplus(lengthscale)
+    u = inputs[:m * d].view(m, d)
+    lengthscale = torch.nn.functional.softplus(inputs[-1])
 
     return u, lengthscale
 
@@ -24,7 +24,6 @@ def extract(inputs, m, d):
 @torch.no_grad
 def levenberg_marquardt(
     u, x, y, kernel, sigma,
-    opt_ls=True, opt_os=False, opt_sigma=False,
     nsteps=100, rtol=1e-8, tau=1e-3):
     """
     Args
@@ -33,17 +32,14 @@ def levenberg_marquardt(
         y ((n,) tensor): training labels
         kernel (nn.module): the kernel function, e.g. ScaleKernel(RBFKernel())
     """
-    raw_lengthscale = kernel.base_kernel.raw_lengthscale
+    m, d = u.size()
 
     functional = ResidualFunctional(
-        kernel, m=u.size(0), d=u.size(1),
+        kernel, m=m, d=d,
         outputscale=kernel.outputscale, sigma=sigma,
     )
 
-    inputs = torch.cat(
-        (u.view(-1), lengthscale=params[1]),
-        dim=-1
-    )
+    inputs = concatenate(u, kernel.base_kernel.raw_lengthscale)
 
     residual = functional.residual(inputs, x, y)
     jacobian = functional.jacobian(inputs, x, y)
@@ -55,16 +51,16 @@ def levenberg_marquardt(
 
     for k in range(nsteps):
         g = jacobian.T @ residual
-        rnorm = torch.norm(g)
 
+        rnorm = torch.norm(g)
         norm_hist.append(rnorm.item())
+
         if rnorm < rtol:
-            assert 0
-            return x, theta
+            return extract(inputs, m, d)
         
         # Compute a proposed step and re-evaluate residual vector
         D = mu * torch.eye(hessian.size(0), device=hessian.device)
-        p = torch.linalg.solve(hessian + D, -g)
+        p = torch.linalg.solve(hessian + D, -g) # consider QR decomposition?
 
         updated_inputs = inputs + p
         updated_residual = functional.residual(updated_inputs, x, y)
@@ -88,7 +84,7 @@ def levenberg_marquardt(
             mu = mu * v
             v = 2 * v
     
-    return inputs, norm_hist
+    return extract(inputs, m, d), norm_hist
 
 
 def _levenberg_marquardt(f, J, x, theta, nsteps=100, rtol=1e-8, tau=1e-3):
