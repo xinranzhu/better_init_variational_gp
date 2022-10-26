@@ -3,7 +3,7 @@ import torch
 sys.path.append("../")
 # from utils import check_cuda_memory
 
-from spline_rproj import ResidualFunctional
+from residual import ResidualFunctional
 
 
 def concatenate(u, lengthscale):
