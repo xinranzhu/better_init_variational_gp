@@ -42,7 +42,8 @@ class ResidualFunctional():
         return self._residual(u, x, y, (lengthscale, self.outputscale), self.sigma)
 
     def jacobian(self, inputs, x, y):
-        return functorch.jacrev(self.residual, argnums=0)(inputs, x, y)
+        return functorch.jacfwd(self.residual, argnums=0)(inputs, x, y)
+        # return functorch.jacrev(self.residual, argnums=0)(inputs, x, y)
 
 
 if __name__ == "__main__":
