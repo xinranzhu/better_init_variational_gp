@@ -26,6 +26,8 @@ parser.add_argument("--num_inducing", type=int, default=50)
 parser.add_argument("--seed", type=int, default=0)
 parser.add_argument("--init", type=str, default="kmeans")
 parser.add_argument("--noise", type=float, default=0.01)
+parser.add_argument("--lm_nsteps", type=int, default=150)
+
 
 
 args =  vars(parser.parse_args())
@@ -77,7 +79,7 @@ sigma = math.sqrt(args["noise"])
 rtol = 1e-4
 tau = 0.05
 theta_penalty = 10.0
-lm_nsteps = 150
+lm_nsteps = args["lm_nsteps"]
 fwd_num_start = 3
 ncand = 8000
 count_random_max = 10
@@ -87,10 +89,9 @@ args["sigma"] = sigma
 args["rtol"] = rtol
 args["tau"] = tau
 args["theta_penalty"] = theta_penalty
-args["lm_nsteps"] = lm_nsteps
-args["fwd_num_start"] = fwd_num_start
-args["ncand"] = ncand
-args["count_random_max"] = count_random_max
+# args["fwd_num_start"] = fwd_num_start
+# args["ncand"] = ncand
+# args["count_random_max"] = count_random_max
 verbose=False
 
 # Forward regression
@@ -125,7 +126,7 @@ end = time.time()
 time_init = end-start
 args["time"] = time_init
 r = rms_vs_truth(u_init, c_init, theta_init, phi, test_x, test_y)
-args["r"] = r
+args["r"] = r.cpu()
 print(f"Using {method}, RMS: {r:.4e}  norm(c): {torch.norm(c_init):.2f}  time cost: {time_init:.2f} sec.")
 sys.stdout.flush()
 store(obj_name, method, num_inducing, c_init.cpu(), u_init.cpu(), theta_init, phi, sigma, 
@@ -169,19 +170,37 @@ if theta_penalty > 0:
 
 method = f"lm-{init}"
 start = time.time()
-ulm, thetalm, norm_hist = levenberg_marquardt(fproj_test, Jproj_test, u_init, theta_init,
-    rtol=rtol, tau=tau, nsteps=lm_nsteps)
+output_steps=np.arange(10, lm_nsteps, step=20, dtype=int)
+ulm, thetalm, norm_hist, res_dict, train_rmse, log_dict = levenberg_marquardt(fproj_test, Jproj_test, u_init, theta_init,
+    rtol=rtol, tau=tau, nsteps=lm_nsteps, output_steps=output_steps, log_each_step=True)
 clm = spline_fit(ulm, train_x, train_y, thetalm, phi, sigma=sigma)
 end = time.time()
 time_lm = end-start
 args["time"] = time_lm
+args["train_rmse"] = train_rmse
 r = rms_vs_truth(ulm, clm, thetalm, phi, test_x, test_y)
-args["r"] = r
-print(f"Using {method}, RMS: {r:.4e}  norm(c): {torch.norm(clm):.2f}  time cost: {time_lm:.2f} sec.")
-
+args["r"] = r.cpu()
+args["log_dict"] = log_dict
+args["res_dict"] = res_dict
+print(f"Using {method}, RMS: {r:.4e}  norm(c): {torch.norm(clm):.2f}  time cost: {time_lm:.2f} sec, train_rmse:{train_rmse:.2e}.")
 sys.stdout.flush()
 store(obj_name, method, num_inducing, clm.cpu(), ulm.cpu(), thetalm, phi, sigma, expid=expid, args=args, 
-    train_x=train_x.cpu(), test_x=test_x, test_y=test_y)
+    train_x=train_x.cpu(), test_x=test_x, test_y=test_y, k=args["lm_nsteps"])
+
+print("\n\ncheck performance at different k")
+for k in output_steps:
+    uk = res_dict[k]["u"].cuda()
+    thetak = res_dict[k]["theta"]
+    train_rmse = res_dict[k]["train_rmse"]
+    ck = spline_fit(uk, train_x, train_y, thetak, phi, sigma=sigma)
+    r = rms_vs_truth(uk, ck, thetak, phi, test_x, test_y)
+    args["time"] = args["time"]*k/args["lm_nsteps"]
+    args["lm_nsteps"] = k
+    args["r"] = r.cpu()
+    args["train_rmse"] = train_rmse
+    print(f"Using {k} steps: train_rmse={train_rmse:.3e}, test_rmse={r:.3e}")
+    store(obj_name, method, num_inducing, ck.cpu(), uk.cpu(), thetak, phi, sigma, expid=expid, args=args, 
+        train_x=train_x.cpu(), test_x=test_x, test_y=test_y, k=k)
 
 
 
