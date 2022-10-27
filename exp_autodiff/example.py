@@ -78,7 +78,6 @@ sys.stdout.flush()
 kernel = gpytorch.kernels.ScaleKernel(gpytorch.kernels.RBFKernel())
 
 
-
 start=time.time()
 assert init == "kmeans"
 method="kmeans"
@@ -107,21 +106,21 @@ store2(obj_name, method, num_inducing, c_init.cpu(), u_init.cpu(), kernel, sigma
 method = f"lm-{init}"
 start = time.time()
 output_steps=np.arange(10, lm_nsteps, step=20, dtype=int)
-(ulm, lengthscale), norm_hist, _ = levenberg_marquardt(
+(ulm, lengthscale), norm_hist, _, _, _ = levenberg_marquardt(
     u_init, train_x, train_y, kernel, rtol=rtol, tau=tau, sigma=sigma,
     nsteps=lm_nsteps, output_steps=output_steps, log_each_step=True)
-kernel.base_kernel.raw_lengthscale = lengthscale
+
+kernel.base_kernel.lengthscale = lengthscale
 
 clm = spline_fit(ulm, train_x, train_y, kernel, sigma=sigma)
 end = time.time()
 time_lm = end-start
 args["time"] = time_lm
-r = rms_vs_truth(ulm, clm, kernel, test_x, test_y)
-args["r"] = r
 print(f"Using {method}, RMS: {r:.4e}  norm(c): {torch.norm(clm):.2f}  time cost: {time_lm:.2f} sec.")
 
 sys.stdout.flush()
-store2(obj_name, method, num_inducing, clm.cpu(), ulm.cpu(), kernel, sigma, expid=expid, args=args, 
+store2(obj_name, method, num_inducing, clm.cpu(), ulm.cpu(), kernel, sigma, 
+    expid=expid, args=args, 
     train_x=train_x.cpu(), test_x=test_x, test_y=test_y)
 
 
