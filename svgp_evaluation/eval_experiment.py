@@ -25,6 +25,7 @@ class Experiment(object):
 
         torch.set_default_dtype(torch.double)
         self.dtype = torch.get_default_dtype()
+        torch.manual_seed(seed)
         if torch.cuda.is_available() and use_gpu:
             self.device = "cuda"
         else:
