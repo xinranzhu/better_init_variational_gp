@@ -47,12 +47,7 @@ args["gpu"] = device_names
 
 
 # loda data
-data_loader = 0 if obj_name in {"bike", "energy", "protein"} else 1
-if data_loader > 0:
-    train_x, train_y, valid_x, valid_y, test_x, test_y = load_data(dataset=obj_name, seed=seed)
-    dim = train_x.shape[1]
-else:
-    train_x, train_y, val_x, val_y, test_x, test_y = load_data_old(obj_name, dim, seed=seed)
+train_x, train_y, val_x, val_y, test_x, test_y = load_data_old(obj_name, dim, seed=seed)
 if device == "cuda":
     train_x = train_x.cuda()
     train_y = train_y.cuda()
