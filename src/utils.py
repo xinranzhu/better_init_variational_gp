@@ -2,10 +2,64 @@ import torch
 import pickle as pkl
 import argparse
 from scipy.io import loadmat
-from math import floor
+from math import floor, sqrt
 import numpy as np
 import sys
 from splines import spline_K, spline_Kuu, spline_eval
+
+def store2(obj_name, method_name, npoints, c, u, kernel, sigma, 
+    expid=None, args=None, train_x=None, test_x=None, test_y=None, lm_step=None):
+
+    m, dim = u.shape
+    theta = kernel.base_kernel.lengthscale.item()
+    res = {"u": u.cpu(), "theta": theta, "sigma": sigma}
+    
+    Kuu = spline_K(u, u, kernel)
+    Kux = spline_K(u, train_x, kernel)
+    Kxu = Kux.T
+
+    # compute the whitened mean 
+    jitter = torch.diag(1e-8*torch.ones(Kuu.shape[0])).to(device=Kuu.device)
+    L = torch.linalg.cholesky(Kuu + jitter)
+    c = torch.matmul(L.T, c) # whitened mean 
+    res["c"] = c.cpu()
+
+    # rmse
+    pred_means = spline_eval(test_x, u, c, kernel)
+    num = torch.norm(test_y - pred_means)
+    denorm = sqrt(len(test_y))
+    rmse = num/denorm
+    res["r"] = rmse
+
+    # compute the whitened covariance 
+    M = Kuu + Kux @ Kxu/sigma/sigma
+    # Sopt = Kuu @ (torch.linalg.solve(M, Kuu)) # optimal variational covariance
+    Sbar = L.T @ (torch.linalg.solve(M, L)) # whitened Sopt
+    res["Sbar"] = Sbar
+    res["L"] = L
+
+    # compute nll for verification
+    Ktt = spline_K(test_x, test_x, kernel)
+    jitter2 = torch.diag(1e-4*torch.ones(Ktt.shape[0])).to(device=Ktt.device)
+    Ktu = spline_K(test_x, u, kernel)
+    Kut = Ktu.T
+    interp_term = torch.linalg.solve(L, Kut)
+    mid_term = Sbar - torch.eye(m).to(device=Sbar.device)
+    pred_covar = Ktt + jitter2 + interp_term.T @ mid_term @ interp_term
+    stds = torch.sqrt(torch.diag(pred_covar)) + sigma # predictive standard deviations
+    nll = - torch.distributions.Normal(pred_means, stds).log_prob(test_y).mean()
+
+    if args:
+        res.update(args) 
+    seed = args["seed"]
+    if lm_step:
+        path = f'../results/{obj_name}-{dim}_{method_name}_m{npoints}_{expid}_{seed}_step{lm_step}.pkl'
+    else:
+        path = f'../results/{obj_name}-{dim}_{method_name}_m{npoints}_{expid}_{seed}.pkl'
+    pkl.dump(res, open(path, 'wb'))
+    print(f"rmse: {rmse:.5e}, nll: {nll:.5e}, res saved to {path}.")
+
+
 
 def store(obj_name, method_name, npoints, c, u, theta, phi, sigma, 
     expid=None, args=None, V=None, num_cut=None, train_x=None, test_x=None, test_y=None):
