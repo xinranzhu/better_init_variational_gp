@@ -23,7 +23,8 @@ def extract(inputs, m, d):
 @torch.no_grad()
 def levenberg_marquardt(
     u, x, y, kernel, sigma,
-    nsteps=100, rtol=1e-8, tau=1e-3
+    nsteps=100, rtol=1e-8, tau=1e-3,
+    output_steps=None, log_each_step=False
 ):
     """
     Args
@@ -48,6 +49,14 @@ def levenberg_marquardt(
     mu = tau * torch.diag(hessian).max()
     v = 2.
     norm_hist = []
+    res_dict = {}
+    if output_steps is not None:
+        for step in output_steps:
+            res_dict[step] = {}
+    log_dict = {"grad_norm": torch.zeros(nsteps),
+                "theta": torch.zeros(nsteps), 
+                "training_rmse": torch.zeros(nsteps),
+                }
 
     for k in range(nsteps):
         g = jacobian.T @ residual
@@ -83,9 +92,21 @@ def levenberg_marquardt(
             # Rescale damping
             mu = mu * v
             v = 2 * v
-    
-    return extract(inputs, m, d), norm_hist
+        if output_steps is not None and k in output_steps:
+            print(k)
+            sys.stdout.flush()
+            res_dict[k] = {"u": x.cpu(), "theta": inputs[-1],
+                           "train_rmse": (residual.cpu()**2).mean().sqrt()}
 
+        if log_each_step:
+            log_dict["grad_norm"][k] = rnorm.cpu()
+            log_dict["theta"][k] = inputs[-1]
+            log_dict["training_rmse"][k] = (residual.cpu()**2).mean().sqrt()
+
+    if log_each_step:
+        return extract(inputs, m, d), norm_hist, res_dict, (residual.cpu()**2).mean().sqrt(), log_dict
+    else:
+        return extract(inputs, m, d), norm_hist, res_dict, (residual.cpu()**2).mean().sqrt()
 
 if __name__ == "__main__":
     import gpytorch
@@ -101,5 +122,5 @@ if __name__ == "__main__":
 
     kernel = gpytorch.kernels.ScaleKernel(gpytorch.kernels.RBFKernel())
 
-    (inducing_points, lengthscale), norm_hist = levenberg_marquardt(u, x, y, kernel, sigma=1e-2)
+    (inducing_points, lengthscale), norm_hist, _, _ = levenberg_marquardt(u, x, y, kernel, sigma=1e-2)
     print(norm_hist)
