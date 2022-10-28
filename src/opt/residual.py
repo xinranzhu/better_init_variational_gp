@@ -10,14 +10,17 @@ import gpytorch
 class ResidualFunctional():
     def __init__(self,
         kernel, m, d,
-        outputscale=None, sigma=None
+        outputscale=None, sigma=None,
+        lengthscale_penalty=None
     ):
         self.func, _, self.buffers = make_functional_with_buffers(kernel)
         self.m = m
         self.d = d
+        self.lengthscale_penalty = lengthscale_penalty
 
         self.outputscale = outputscale
         self.sigma = sigma
+        self.device = kernel.base_kernel.lengthscale.device
 
     def _residual(self, u, x, y, params, sigma):
         with gpytorch.settings.trace_mode(), gpytorch.settings.lazily_evaluate_kernels(False):
@@ -32,7 +35,13 @@ class ResidualFunctional():
             )
             ybar = torch.cat([y, y.new_zeros(m)], dim=-1)
             c = torch.linalg.lstsq(A, ybar.unsqueeze(-1), rcond=None).solution.squeeze()
-            return ybar - A @ c
+            r = ybar - A @ c
+            # if self.lengthscale_penalty:
+            #     tail = torch.tensor(self.lengthscale_penalty*params[0]).reshape(-1).to(self.device)
+            #     res = torch.cat([r, tail])
+            #     return res
+            # else:
+            return r
 
     def residual(self, inputs, x, y):
         u = inputs[:self.m * self.d].view(self.m, self.d)
