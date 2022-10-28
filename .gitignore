@@ -11,3 +11,4 @@ uci
 *.csv
 *.pdf
 *.mat
+*.yml
