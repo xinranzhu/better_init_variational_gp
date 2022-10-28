@@ -35,6 +35,7 @@ def levenberg_marquardt(
     """
     m, d = u.size()
 
+    kernel = kernel.to(device=x.device)
     functional = ResidualFunctional(
         kernel, m=m, d=d,
         outputscale=kernel.outputscale, sigma=sigma,
