@@ -5,17 +5,23 @@ from scipy.io import loadmat
 from math import floor, sqrt
 import numpy as np
 import sys
+from splines2 import spline_K as Kernel_mat
+from splines2 import spline_eval as prediction
+
 from splines import spline_K, spline_Kuu, spline_eval
 
-def store2(obj_name, method_name, npoints, c, u, kernel, sigma, 
-    expid=None, args=None, train_x=None, test_x=None, test_y=None, lm_step=None):
+def eval_store(obj_name, method_name, npoints, c, u, kernel, sigma, 
+    expid=None, args=None, train_x=None, test_x=None, test_y=None, lm_step=None,
+    store=True):
+    
+    kernel = kernel.to(device=u.device)
 
     m, dim = u.shape
     theta = kernel.base_kernel.lengthscale.item()
     res = {"u": u.cpu(), "theta": theta, "sigma": sigma}
     
-    Kuu = spline_K(u, u, kernel)
-    Kux = spline_K(u, train_x, kernel)
+    Kuu = Kernel_mat(u, u, kernel)
+    Kux = Kernel_mat(u, train_x, kernel)
     Kxu = Kux.T
 
     # compute the whitened mean 
@@ -25,7 +31,7 @@ def store2(obj_name, method_name, npoints, c, u, kernel, sigma,
     res["c"] = c.cpu()
 
     # rmse
-    pred_means = spline_eval(test_x, u, c, kernel)
+    pred_means = prediction(test_x, u, c, kernel)
     num = torch.norm(test_y - pred_means)
     denorm = sqrt(len(test_y))
     rmse = num/denorm
@@ -39,9 +45,9 @@ def store2(obj_name, method_name, npoints, c, u, kernel, sigma,
     res["L"] = L
 
     # compute nll for verification
-    Ktt = spline_K(test_x, test_x, kernel)
+    Ktt = Kernel_mat(test_x, test_x, kernel)
     jitter2 = torch.diag(1e-4*torch.ones(Ktt.shape[0])).to(device=Ktt.device)
-    Ktu = spline_K(test_x, u, kernel)
+    Ktu = Kernel_mat(test_x, u, kernel)
     Kut = Ktu.T
     interp_term = torch.linalg.solve(L, Kut)
     mid_term = Sbar - torch.eye(m).to(device=Sbar.device)
@@ -52,13 +58,18 @@ def store2(obj_name, method_name, npoints, c, u, kernel, sigma,
     if args:
         res.update(args) 
     seed = args["seed"]
+    
+    print(f"rmse: {rmse:.5e}, nll: {nll:.5e}.")
+
+
     if lm_step:
         path = f'../results/{obj_name}-{dim}_{method_name}_m{npoints}_{expid}_{seed}_step{lm_step}.pkl'
     else:
         path = f'../results/{obj_name}-{dim}_{method_name}_m{npoints}_{expid}_{seed}.pkl'
-    pkl.dump(res, open(path, 'wb'))
-    print(f"rmse: {rmse:.5e}, nll: {nll:.5e}, res saved to {path}.")
-
+    if store:
+        pkl.dump(res, open(path, 'wb'))
+        print(f"res saved to {path}.")
+    return res
 
 
 def store(obj_name, method_name, npoints, c, u, theta, phi, sigma, 

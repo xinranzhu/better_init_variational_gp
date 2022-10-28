@@ -8,11 +8,11 @@ def spline_K(x, u, kernel):
 
 
 def spline_eval(x, u, c, kernel):
-    Kxu = spline_K(x, u, kernel).evaluate()
+    Kxu = spline_K(x, u, kernel)
     return torch.matmul(Kxu,c)
 
 def spline_fit(u, x, y, kernel, sigma=0., ):
-    Kxu = spline_K(x, u, kernel).evaluate()
+    Kxu = spline_K(x, u, kernel)
     m = Kxu.shape[1]
     if sigma == 0.:
         return torch.linalg.lstsq(Kxu,y).solution.cpu()
