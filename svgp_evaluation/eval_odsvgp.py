@@ -75,7 +75,8 @@ class ODSVGP_exp(Experiment):
             print(f"Pretraining by {init_method} cost: {time_cost} sec.")
             assert u0.shape[0] == num_inducing and u0.shape[1] == self.dim
         
-        self.num_inducing_covar = num_inducing//5
+        # self.num_inducing_covar = (num_inducing//7)*3
+        self.num_inducing_covar = num_inducing
         rand_index = random.sample(range(self.train_n), self.num_inducing_covar)
         covar_inducing_points = self.train_x[rand_index, :]
 
@@ -110,6 +111,7 @@ class ODSVGP_exp(Experiment):
                 hypers["variational_strategy._variational_distribution.natural_vec"] = c.to(u0.device)
             else:
                 hypers["variational_strategy._variational_distribution.variational_mean"] = c.to(u0.device)
+                model.variational_strategy.variational_mean_initialized = torch.tensor(1)
             model.initialize(**hypers)
             model.variational_strategy.variational_mean_initialized = torch.tensor(1)
 
@@ -127,9 +129,8 @@ class ODSVGP_exp(Experiment):
         train_batch_size=1024,
         mll_type="PLL", beta=1.0,
         load_run=None,
-        learn_S_only=False,
-        separate_group=None, lr2=None, gamma2=None,
-        learn_variational_only=False, learn_hyper_only=False,
+        learn_other=True, learn_main=True,
+        lr2=None, gamma2=None,
         ):
 
         self.method_args['train'] = locals()
@@ -139,11 +140,12 @@ class ODSVGP_exp(Experiment):
         load_run_path = self.save_path + "_" + load_run + ".model" if load_run is not None else None
         print("Loading previous run: ", load_run)
 
-        means, variances, rmse, test_nll, testing_time = eval_gp(
+        means, variances, test_rmse, test_nll, testing_time = eval_gp(
             self.model, self.likelihood, 
             self.test_x, self.test_y, 
             device=self.device,
             tracker=None)
+        print(f"initial test performance: test_rmse={test_rmse:.4f}, test_nll={test_nll:.3f}.")
         
         self.model, self.likelihood, _, = train_gp(
             self.model, self.likelihood, 
@@ -164,10 +166,8 @@ class ODSVGP_exp(Experiment):
             test_x=self.test_x, test_y=self.test_y,
             val_x=self.val_x, val_y=self.val_y,
             load_run_path=load_run_path,
-            learn_S_only=learn_S_only,
-            separate_group=separate_group, lr2=lr2, gamma2=gamma2,
-            learn_variational_only=learn_variational_only,
-            learn_hyper_only=learn_hyper_only,
+            learn_other=learn_other, learn_main=learn_main,
+            lr2=lr2, gamma2=gamma2
         )
 
         if self.save_model:
