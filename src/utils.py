@@ -8,7 +8,7 @@ import sys
 from splines import spline_K, spline_Kuu, spline_eval
 
 def store(obj_name, method_name, npoints, c, u, theta, phi, sigma, 
-    expid=None, args=None, V=None, num_cut=None, train_x=None, test_x=None, test_y=None):
+    expid=None, args=None, V=None, num_cut=None, train_x=None, test_x=None, test_y=None, k=None):
 
     m, dim = u.shape
     res = {"u": u.cpu(), "theta": theta, "sigma": sigma}
@@ -49,20 +49,28 @@ def store(obj_name, method_name, npoints, c, u, theta, phi, sigma,
 
     pred_covar = Ktt + jitter2 + interp_term.T @ mid_term @ interp_term
     # compute nll for verification
-    stds = torch.sqrt(torch.diag(pred_covar))
+    stds = torch.sqrt(torch.diag(pred_covar)) + sigma
     nll = - torch.distributions.Normal(pred_means, stds).log_prob(test_y).mean()
 
-    res["Sbar"] = Sbar
-    res["L"] = L
+    res["Sbar"] = Sbar.cpu()
+    res["L"] = L.cpu()
+    res["nll"] = nll
     if args:
         res.update(args) 
+        
     seed = args["seed"]
-    if num_cut is None:
+    if num_cut is None and k is None:
         path = f'../results/{obj_name}-{dim}_{method_name}_m{npoints}_{expid}_{seed}.pkl'
-    else:
+    elif k is None:
         path = f'../results/{obj_name}-{dim}_{method_name}_m{npoints}_{expid}_{seed}_{num_cut}.pkl'
+    elif num_cut is None:
+        path = f'../results/{obj_name}-{dim}_{method_name}_m{npoints}_{expid}_{seed}_step{k}.pkl'
+    else:
+        path = f'../results/{obj_name}-{dim}_{method_name}_m{npoints}_{expid}_{seed}_{num_cut}_step{k}.pkl'
+
+
     pkl.dump(res, open(path, 'wb'))
-    print(f"nll: {nll}, res saved to {path}.")
+    print(f"test_nll: {nll:.3e}, res saved to {path}.")
 
 def load_data(data_dir='../uci/', dataset="3droad", seed=0):
     torch.manual_seed(seed) 

@@ -9,3 +9,6 @@ slurm_output
 svgp_evaluation/saved_models
 uci
 *.csv
+*.mat
+*.pdf
+*.yml
