@@ -19,11 +19,11 @@ def lstsq_residual(u, x, y, theta, phi, sigma=1e-3):
 
     # compute the residual
     # the parenthesis is crucial (computing Q @ Q.T first is slower)
-    # r = Q @ (Q.T @ ybar) - ybar
+    # r = ybar - Q @ (Q.T @ ybar)
 
     # if both c and r are need, then this is more efficient
     c = torch.linalg.solve_triangular(R, Q.T @ ybar.unsqueeze(-1), upper=True).squeeze()
-    r = A @ c - ybar
+    r = ybar - A @ c
 
     return r, c, Q, R
 
@@ -47,8 +47,7 @@ def lstsq_jacobian(u, x, y, theta, Drho_phi, Dtheta_phi, r, c, Q, R, sigma=1e-3)
         JAtr[j, J] = z[J]
     JAtr[:, -1] = z[m*d:]
 
-    # T1 = torch.linalg.solve_triangular(R.T, JAtr, upper=True)
-    T1 = torch.linalg.solve(R.T, JAtr)
+    T1 = torch.linalg.solve_triangular(R.T, JAtr, upper=False)
     T1 -= Q[:n].T @ JAc
     res = Q @ -T1
     res[:n] -= JAc
