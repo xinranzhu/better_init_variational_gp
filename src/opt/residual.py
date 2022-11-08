@@ -46,7 +46,8 @@ class ResidualFunctional():
     def residual(self, inputs, x, y):
         u = inputs[:self.m * self.d].view(self.m, self.d)
 
-        lengthscale = torch.nn.functional.softplus(inputs[-1])
+        # lengthscale = torch.nn.functional.softplus(inputs[-1])
+        lengthscale = inputs[-1]
 
         return self._residual(u, x, y, (lengthscale, self.outputscale), self.sigma)
 
@@ -68,7 +69,7 @@ if __name__ == "__main__":
 
     functional = ResidualFunctional(
         kernel, m=m, d=d,
-        outputscale=kernel.outputscale, sigma=1e-2,
+        outputscale=kernel.raw_outputscale, sigma=1e-2,
     )
 
     inputs = torch.cat(

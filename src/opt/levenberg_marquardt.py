@@ -38,7 +38,7 @@ def levenberg_marquardt(
     kernel = kernel.to(device=x.device)
     functional = ResidualFunctional(
         kernel, m=m, d=d,
-        outputscale=kernel.outputscale, sigma=sigma,
+        outputscale=kernel.raw_outputscale, sigma=sigma,
     )
 
     inputs = concatenate(u, kernel.base_kernel.raw_lengthscale)
@@ -122,6 +122,8 @@ if __name__ == "__main__":
     y = torch.randn(n)
 
     kernel = gpytorch.kernels.ScaleKernel(gpytorch.kernels.RBFKernel())
+    kernel.outputscale = 1.
+    kernel.base_kernel.lengthscale = 1.
 
-    (inducing_points, lengthscale), norm_hist, _, _ = levenberg_marquardt(u, x, y, kernel, sigma=1e-2)
+    (inducing_points, lengthscale), norm_hist, _, _ = levenberg_marquardt(u, x, y, kernel, sigma=1e-3)
     print(norm_hist)
