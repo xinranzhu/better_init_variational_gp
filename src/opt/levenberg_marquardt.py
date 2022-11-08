@@ -29,19 +29,25 @@ def levenberg_marquardt(
     m, d = u.shape
 
     def func_residual(u, theta):
-        residual, c, Q, R = lstsq_residual(u, x, y, theta, phi)
-        # return torch.cat([residual, theta_penalty * theta * torch.ones(1, device=u.device)]), c, Q, R
-        return residual, c, Q, R
+        residual, Q, R = lstsq_residual(u, x, y, theta, phi)
 
-    def func_jacobian(u, theta, r, c, Q, R):
-        jacobian = lstsq_jacobian(u, x, y, theta, Drho_phi, Dtheta_phi, r, c, Q, R)
-        return jacobian
-        # t = torch.zeros(jacobian.shape[1]).to(u.device)
-        # t[-1] = theta_penalty
-        # return torch.cat([jacobian, t.reshape(1, -1)], dim=0)
+        if theta_penalty > 0.:
+            return torch.cat([residual, theta_penalty * theta * torch.ones(1, device=u.device)]), Q, R
+        else:
+            return residual, Q, R
 
-    residual, c, Q, R = func_residual(u, theta)
-    jacobian = func_jacobian(u, theta, residual, c, Q, R)
+    def func_jacobian(u, theta, Q, R):
+        jacobian = lstsq_jacobian(u, x, y, theta, phi, Drho_phi, Dtheta_phi, Q, R)
+
+        if theta_penalty > 0.:
+            t = torch.zeros(jacobian.shape[1]).to(u.device)
+            t[-1] = theta_penalty
+            return torch.cat([jacobian, t.reshape(1, -1)], dim=0)
+        else:
+            return jacobian
+
+    residual, Q, R = func_residual(u, theta)
+    jacobian = func_jacobian(u, theta, Q, R)
     hessian = jacobian.T @ jacobian
 
     # no need to compute hessian explicitly, which is slightly faster
@@ -81,7 +87,7 @@ def levenberg_marquardt(
 
         updated_u = u + p[:-1].view(u.shape)
         updated_theta = theta + p[-1].item()
-        updated_residual, c, Q, R = func_residual(updated_u, updated_theta)
+        updated_residual, Q, R = func_residual(updated_u, updated_theta)
 
         # Compute the gain ratio
         rho = (residual.square().sum() - updated_residual.square().sum()) \
@@ -93,7 +99,7 @@ def levenberg_marquardt(
             theta = updated_theta
 
             residual = updated_residual
-            jacobian = func_jacobian(u, theta, updated_residual, c, Q, R)
+            jacobian = func_jacobian(u, theta, Q, R)
             hessian = jacobian.T @ jacobian
 
             # Reset re-scaling parameter, update damping
@@ -128,13 +134,18 @@ def levenberg_marquardt(
 if __name__ == "__main__":
     torch.manual_seed(0)
 
-    n = 5
-    d = 2
-    m = 3
+    device = "cuda:1"
 
-    u = torch.randn(m, d)
-    x = torch.randn(n, d)
-    y = torch.randn(n)
+    # n = 5
+    # d = 2
+    # m = 3
+    n = 100
+    d = 5
+    m = 10
 
-    inducing_points, lengthscale, norm_hist, _, _ = levenberg_marquardt(u, x, y, 1., theta_penalty=1e-2)
+    u = torch.randn(m, d, device=device)
+    x = torch.randn(n, d, device=device)
+    y = torch.randn(n, device=device)
+
+    inducing_points, lengthscale, norm_hist, _, _ = levenberg_marquardt(u, x, y, 1., theta_penalty=10.)
     print(norm_hist)

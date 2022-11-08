@@ -19,18 +19,26 @@ def lstsq_residual(u, x, y, theta, phi, sigma=1e-3):
 
     # compute the residual
     # the parenthesis is crucial (computing Q @ Q.T first is slower)
-    # r = ybar - Q @ (Q.T @ ybar)
+    r = ybar - Q @ (Q.T @ ybar)
 
     # if both c and r are need, then this is more efficient
-    c = torch.linalg.solve_triangular(R, Q.T @ ybar.unsqueeze(-1), upper=True).squeeze()
-    r = ybar - A @ c
+    # c = torch.linalg.solve_triangular(R, Q.T @ ybar.unsqueeze(-1), upper=True).squeeze()
+    # r = ybar - A @ c
 
-    return r, c, Q, R
+    return r, Q, R
 
 
-def lstsq_jacobian(u, x, y, theta, Drho_phi, Dtheta_phi, r, c, Q, R, sigma=1e-3):
+def lstsq_jacobian(u, x, y, theta, phi, Drho_phi, Dtheta_phi, Q, R, sigma=1e-3):
     m, d = u.shape
     n, d = x.shape
+
+    Kxu = spline_K(x, u, theta, phi)
+
+    A = torch.cat([Kxu, sigma * torch.eye(m, device=u.device)], dim=0)
+    ybar = torch.cat([y, torch.zeros(m, device=u.device)])
+
+    c = torch.linalg.solve_triangular(R, Q.T @ ybar.unsqueeze(-1), upper=True).squeeze()
+    r = ybar - A @ c
 
     JA = Dspline_K(x, u, theta, Drho_phi, Dtheta_phi)  # n*md+m
     JA_ex = torch.cat([JA, torch.zeros(m, m * d + m).to(device=JA.device)], dim=0)
