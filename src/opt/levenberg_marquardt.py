@@ -29,15 +29,15 @@ def levenberg_marquardt(
     m, d = u.shape
 
     def func_residual(u, theta):
-        residual, Q, R = lstsq_residual(u, x, y, theta, phi, sigma)
+        residual, cache = lstsq_residual(u, x, y, theta, phi, sigma)
 
         if theta_penalty > 0.:
-            return torch.cat([residual, theta_penalty * theta * torch.ones(1, device=u.device)]), Q, R
+            return torch.cat([residual, theta_penalty * theta * torch.ones(1, device=u.device)]), cache
         else:
-            return residual, Q, R
+            return residual, cache
 
-    def func_jacobian(u, theta, Q, R):
-        jacobian = lstsq_jacobian(u, x, y, theta, phi, Drho_phi, Dtheta_phi, sigma, Q, R)
+    def func_jacobian(u, theta, cache):
+        jacobian = lstsq_jacobian(u, x, y, theta, phi, Drho_phi, Dtheta_phi, cache)
 
         if theta_penalty > 0.:
             t = torch.zeros(jacobian.shape[1]).to(u.device)
@@ -46,8 +46,8 @@ def levenberg_marquardt(
         else:
             return jacobian
 
-    residual, Q, R = func_residual(u, theta)
-    jacobian = func_jacobian(u, theta, Q, R)
+    residual, cache = func_residual(u, theta)
+    jacobian = func_jacobian(u, theta, cache)
     hessian = jacobian.T @ jacobian
 
     # no need to compute hessian explicitly, which is slightly faster
@@ -87,7 +87,7 @@ def levenberg_marquardt(
 
         updated_u = u + p[:-1].view(u.shape)
         updated_theta = theta + p[-1].item()
-        updated_residual, Q, R = func_residual(updated_u, updated_theta)
+        updated_residual, cache = func_residual(updated_u, updated_theta)
 
         # Compute the gain ratio
         rho = (residual.square().sum() - updated_residual.square().sum()) \
@@ -99,7 +99,7 @@ def levenberg_marquardt(
             theta = updated_theta
 
             residual = updated_residual
-            jacobian = func_jacobian(u, theta, Q, R)
+            jacobian = func_jacobian(u, theta, cache)
             hessian = jacobian.T @ jacobian
 
             # Reset re-scaling parameter, update damping

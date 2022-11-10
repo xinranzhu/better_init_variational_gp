@@ -2,12 +2,14 @@ import torch
 import math
 import numpy as np
 
+
 def spline_K(x, u, theta, phi, V=None):
     m,d = u.shape
     n,d = x.shape
     R = u.reshape(1,m,d)-x.reshape(n,1,d)
     NR = torch.norm(R, dim=2)
     Kxu = phi(NR, theta=theta)
+
     if V is None: # no directions
         return Kxu
     else:
@@ -23,6 +25,7 @@ def spline_K(x, u, theta, phi, V=None):
                 KV = (torch.matmul(K_x_ui, Vi.T).squeeze())/theta/theta
                 Kxu2 = torch.cat([Kxu2, KV.reshape(n, Vi.shape[0])], dim=1)
         return Kxu2
+
 
 def Qxy(x, y, W, D, theta, phi):
     """
@@ -126,12 +129,13 @@ def spline_Kuu(u, theta, phi, V=None):
     return Quu[r][:,r]
 
 
-
 def Dspline_K(x, u, theta, Drho_phi, Dtheta_phi, eps=1e-14):
     m,d = u.shape
     n,d = x.shape
+
     R = u.reshape(1,m,d)-x.reshape(n,1,d)
     NR = torch.norm(R, dim=2)
+
     # NR = n by m
     Dphi = Drho_phi(NR, theta=theta)
     mask = NR > eps
