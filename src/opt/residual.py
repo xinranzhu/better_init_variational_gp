@@ -5,6 +5,8 @@ sys.path.append("../")
 
 from splines import spline_K, Dspline_K
 
+import time
+
 
 def lstsq_residual(u, x, y, theta, phi, sigma=1e-3):
     m, _ = u.shape
@@ -28,7 +30,7 @@ def lstsq_residual(u, x, y, theta, phi, sigma=1e-3):
     return r, Q, R
 
 
-def lstsq_jacobian(u, x, y, theta, phi, Drho_phi, Dtheta_phi, Q, R, sigma=1e-3):
+def lstsq_jacobian(u, x, y, theta, phi, Drho_phi, Dtheta_phi, sigma, Q, R):
     m, d = u.shape
     n, d = x.shape
 
@@ -54,6 +56,9 @@ def lstsq_jacobian(u, x, y, theta, phi, Drho_phi, Dtheta_phi, Q, R, sigma=1e-3):
         JAc[:, J] *= c[j]
         JAtr[j, J] = z[J]
     JAtr[:, -1] = z[m*d:]
+
+    # ptr = JAc[:, :m * d].T.view(m, d, n)
+    # ptr *= c.unsqueeze(-1).unsqueeze(-1)
 
     T1 = torch.linalg.solve_triangular(R.T, JAtr, upper=False)
     T1 -= Q[:n].T @ JAc

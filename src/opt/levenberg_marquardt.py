@@ -23,13 +23,13 @@ def Dtheta_phi(rho, theta):
 
 
 def levenberg_marquardt(
-    u, x, y, theta, theta_penalty,
+    u, x, y, theta, theta_penalty, sigma,
     nsteps=100, rtol=1e-8, tau=1e-3, output_steps=None, log_each_step=False
 ):
     m, d = u.shape
 
     def func_residual(u, theta):
-        residual, Q, R = lstsq_residual(u, x, y, theta, phi)
+        residual, Q, R = lstsq_residual(u, x, y, theta, phi, sigma)
 
         if theta_penalty > 0.:
             return torch.cat([residual, theta_penalty * theta * torch.ones(1, device=u.device)]), Q, R
@@ -37,7 +37,7 @@ def levenberg_marquardt(
             return residual, Q, R
 
     def func_jacobian(u, theta, Q, R):
-        jacobian = lstsq_jacobian(u, x, y, theta, phi, Drho_phi, Dtheta_phi, Q, R)
+        jacobian = lstsq_jacobian(u, x, y, theta, phi, Drho_phi, Dtheta_phi, sigma, Q, R)
 
         if theta_penalty > 0.:
             t = torch.zeros(jacobian.shape[1]).to(u.device)
@@ -134,18 +134,24 @@ def levenberg_marquardt(
 if __name__ == "__main__":
     torch.manual_seed(0)
 
-    device = "cuda:1"
+    device = "cpu"
 
     # n = 5
     # d = 2
     # m = 3
-    n = 100
-    d = 5
-    m = 10
+    n = 100000
+    d = 20
+    m = 5
 
     u = torch.randn(m, d, device=device)
     x = torch.randn(n, d, device=device)
     y = torch.randn(n, device=device)
 
-    inducing_points, lengthscale, norm_hist, _, _ = levenberg_marquardt(u, x, y, 1., theta_penalty=10.)
-    print(norm_hist)
+    import time
+
+    start = time.time()
+    inducing_points, lengthscale, norm_hist, _, _ = levenberg_marquardt(u, x, y, 1., theta_penalty=10., sigma=1e-2, nsteps=1000)
+    end = time.time()
+
+    print(end - start)
+    # print(norm_hist)
