@@ -5,8 +5,6 @@ sys.path.append("../")
 
 from splines import spline_K, Dspline_K
 
-import time
-
 
 def lstsq_residual(u, x, y, theta, phi, sigma=1e-3):
     m, _ = u.shape
