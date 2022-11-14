@@ -39,14 +39,19 @@ def lstsq_jacobian(u, x, y, theta, phi, Drho_phi, Dtheta_phi, cache):
     Jac_theta = torch.matmul(JA[:, m*d:], c)
     JAc = torch.cat([JA[:, :m*d], Jac_theta.reshape(-1, 1)], dim=1)
 
-    for j in range(m):
-        J = range(j * d, (j+1)*d)
-        JAc[:, J] *= c[j]
-        JAtr[j, J] = z[J]
-    JAtr[:, -1] = z[m*d:]
+    # for j in range(m):
+    #     J = range(j * d, (j+1)*d)
+    #     JAc[:, J] *= c[j]
+    #     JAtr[j, J] = z[J]
+    # JAtr[:, -1] = z[m*d:]
 
-    # ptr = JAc[:, :m * d].T.view(m, d, n)
-    # ptr *= c.unsqueeze(-1).unsqueeze(-1)
+    ptr = JAc[:, :m * d].T.view(m, d, n)
+    ptr *= c.unsqueeze(-1).unsqueeze(-1)
+
+    idx1 = torch.arange(m, dtype=torch.long, device=JAtr.device).unsqueeze(-1)
+    idx2 = torch.arange(m * d, dtype=torch.long, device=JAtr.device).view(m, d)
+    JAtr[idx1, idx2] = z[:m * d].view(-1, d)
+    JAtr[:, -1] = z[m * d:]
 
     T1 = torch.linalg.solve_triangular(R.T, JAtr, upper=False)
     T1 -= Q[:n].T @ JAc

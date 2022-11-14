@@ -40,7 +40,7 @@ def levenberg_marquardt(
         jacobian = lstsq_jacobian(u, x, y, theta, phi, Drho_phi, Dtheta_phi, cache)
 
         if theta_penalty > 0.:
-            t = torch.zeros(jacobian.shape[1]).to(u.device)
+            t = torch.zeros(jacobian.shape[1], device=u.device)
             t[-1] = theta_penalty
             return torch.cat([jacobian, t.reshape(1, -1)], dim=0)
         else:
@@ -139,8 +139,8 @@ if __name__ == "__main__":
     # n = 5
     # d = 2
     # m = 3
-    n = 100000
-    d = 20
+    n = 11 
+    d = 3
     m = 5
 
     u = torch.randn(m, d, device=device)

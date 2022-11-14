@@ -49,7 +49,7 @@ def store(obj_name, method_name, npoints, c, u, theta, phi, sigma,
 
     pred_covar = Ktt + jitter2 + interp_term.T @ mid_term @ interp_term
     # compute nll for verification
-    stds = torch.sqrt(torch.diag(pred_covar)) + sigma
+    stds = torch.sqrt(torch.diag(pred_covar) + 1e-4) + sigma
     nll = - torch.distributions.Normal(pred_means, stds).log_prob(test_y).mean()
 
     res["Sbar"] = Sbar.cpu()
