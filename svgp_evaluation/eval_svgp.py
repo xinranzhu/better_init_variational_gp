@@ -7,8 +7,8 @@ import torch
 import gpytorch
 import pickle as pkl
 sys.path.append("./models")
-from svgp import GPModel, get_inducing_points, train_gp, eval_gp, _select_inducing_points
-from svgp_utils import meshgrid_uniform
+from svgp import GPModel, train_gp, eval_gp
+from pivoted import _select_inducing_points
 from eval_experiment import Experiment
 
 
@@ -27,9 +27,9 @@ class SVGP_exp(Experiment):
     def __init__(self,**kwargs):
         super().__init__(**kwargs, model="SVGP")
         
-    def init_hypers(self, num_inducing=2, 
+    def init_hypers(self, num_inducing=500, 
         init_method="random", 
-        init_expid="-",
+        init_expid=None,
         learn_u=True, 
         learn_m=True,
         use_ngd=False, ngd_lr=0.1,
@@ -84,7 +84,6 @@ class SVGP_exp(Experiment):
         model = GPModel(inducing_points=u0, 
                 learn_inducing_locations=learn_u,
                 use_ngd=use_ngd)
-        likelihood = gpytorch.likelihoods.GaussianLikelihood()
         
         if init_method == "pivchol":
             # compute pivoted cholesky initialization for inducing points
@@ -102,7 +101,6 @@ class SVGP_exp(Experiment):
 
         if init_method not in {"random", "kmeans", "random_init_noise", "pivchol"}:
             hypers = {}
-            hypers_likelihood = {}
             if use_ngd:
                 hypers["variational_strategy._variational_distribution.natural_vec"] = c.to(u0.device)
             else:
@@ -111,7 +109,7 @@ class SVGP_exp(Experiment):
                     hypers['covar_module.lengthscale'] =  torch.tensor(theta)
                 if init_noise: 
                     print("initializing noise.")
-                    hypers_likelihood["likelihood.noise_covar.noise"] = torch.tensor(sigma**2)
+                    hypers["likelihood.noise_covar.noise"] = torch.tensor(sigma**2)
                 if init_covar:
                     print("initializing covar.")
                     hypers["variational_strategy._variational_distribution.chol_variational_covar"] = Lbar.to(u0.device)
@@ -120,13 +118,14 @@ class SVGP_exp(Experiment):
                     print("initializing mean.")
                     hypers["variational_strategy._variational_distribution.variational_mean"] = c.to(u0.device)
                     model.variational_strategy.variational_mean_initialized = torch.tensor(1)
+            print("before model.likelihood.noise_covar.noise = ", model.likelihood.noise_covar.noise)
             model.initialize(**hypers)
-            likelihood.initialize(**hypers_likelihood)
+            print("after model.likelihood.noise_covar.noise = ", model.likelihood.noise_covar.noise)
         if init_method == "random_init_noise":
-            hypers_likelihood = {'likelihood.noise_covar.noise': torch.tensor(0.1**2)}  
-            likelihood.initialize(**hypers_likelihood)
+            hypers = {'likelihood.noise_covar.noise': torch.tensor(0.1**2)}  
+            model.initialize(**hypers)
+
         self.model = model
-        self.likelihood = likelihood
         self.use_ngd = use_ngd
         self.ngd_lr = ngd_lr
         self.save_model = save_model
@@ -142,6 +141,7 @@ class SVGP_exp(Experiment):
         learn_S_only=False,
         separate_group=None, lr2=None, gamma2=None,
         learn_variational_only=False, learn_hyper_only=False,
+        debug=False, verbose=True,
         ):
 
         self.method_args['train'] = locals()
@@ -152,14 +152,14 @@ class SVGP_exp(Experiment):
         print("Loading previous run: ", load_run)
 
         means, variances, rmse, test_nll, testing_time = eval_gp(
-            self.model, self.likelihood, 
+            self.model, 
             self.test_x, self.test_y, 
             device=self.device,
             tracker=None)
         print(f"initial test rmse: {rmse:.4e}, test nll: {test_nll:.4e}")
         
-        self.model, self.likelihood, _, = train_gp(
-            self.model, self.likelihood, 
+        self.model, _, = train_gp(
+            self.model, 
             self.train_x, self.train_y, 
             num_epochs=num_epochs, 
             train_batch_size=train_batch_size,
@@ -181,6 +181,7 @@ class SVGP_exp(Experiment):
             separate_group=separate_group, lr2=lr2, gamma2=gamma2,
             learn_variational_only=learn_variational_only,
             learn_hyper_only=learn_hyper_only,
+            debug=debug, verbose=verbose,
         )
 
         if self.save_model:
@@ -192,7 +193,7 @@ class SVGP_exp(Experiment):
 
     def eval(self, step=99999):
         means, variances, rmse, test_nll, testing_time = eval_gp(
-            self.model, self.likelihood, 
+            self.model,
             self.test_x, self.test_y, 
             device=self.device,
             tracker=self.tracker, step=step)
