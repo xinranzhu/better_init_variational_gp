@@ -58,8 +58,6 @@ def train_gp(model, train_x, train_y,
         {'params': model.parameters()},   
     ], lr=lr)
    
-   
-
     print("model.params: ", list(model.parameters()))
     milestones = [int(num_epochs*len(train_loader)/3), int(2*num_epochs*len(train_loader)/3)]
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones, gamma=gamma)
