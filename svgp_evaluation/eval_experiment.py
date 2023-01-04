@@ -2,6 +2,9 @@ import numpy as np
 import torch
 import sys
 sys.path.append("../src")
+# sys.path.append("./synthetic_utils")
+# from load_data_synthetic import load_synthetic_data
+# from synthetic_functions import *
 from utils import load_data, load_data_old
 
 try:
@@ -21,6 +24,7 @@ class Experiment(object):
                 wandb_project_name='better_init_variational_GP2', 
                 wandb_entity="xinranzhu", 
                 use_gpu=True, wandb=True, seed=1234,
+                gradients=False,
                 ):
 
         torch.set_default_dtype(torch.double)
@@ -35,15 +39,30 @@ class Experiment(object):
         self.obj_name = obj_name
         self.seed = seed
 
-        # load training and testing data
-        data_loader = 0 if obj_name in {"bike", "energy", "protein"} else 1
-        if data_loader:
-            self.train_x, self.train_y, self.val_x, self.val_y, self.test_x, self.test_y = load_data(dataset=obj_name, seed=seed)
+        if gradients:
+            testfun = eval(f"{obj_name}_with_deriv")()
+            n = 10000 
+            n_test = 10000
+            args ={"derivative": True, "seed":seed}
+            x, y, _ = load_synthetic_data(testfun, n+n_test, **args)
+            self.train_x = x[:n, :]
+            self.test_x = x[n:, :]
+            self.train_y = y[:n, ...]
+            self.test_y = y[n:, ...]
+            self.val_x, self.val_y = None, None
+            self.train_n = self.train_x.shape[0]
+            self.test_n = self.test_x.shape[0]
+            self.val_n = 0
         else:
-            self.train_x, self.train_y, self.val_x, self.val_y, self.test_x, self.test_y = load_data_old(obj_name, dim, seed=seed)
-        self.train_n = self.train_x.shape[0]
-        self.test_n = self.test_x.shape[0]
-        self.val_n = self.val_x.shape[0]
+            # load training and testing data
+            data_loader = 0 if obj_name in {"bike", "energy", "protein"} else 1
+            if data_loader:
+                self.train_x, self.train_y, self.val_x, self.val_y, self.test_x, self.test_y = load_data(dataset=obj_name, seed=seed)
+            else:
+                self.train_x, self.train_y, self.val_x, self.val_y, self.test_x, self.test_y = load_data_old(obj_name, dim, seed=seed)
+            self.train_n = self.train_x.shape[0]
+            self.test_n = self.test_x.shape[0]
+            self.val_n = self.val_x.shape[0]
         
         self.method_args = {}
         self.method_args['init'] = locals()
