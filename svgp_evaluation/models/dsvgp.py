@@ -36,12 +36,10 @@ class GPModel(ApproximateGP):
 
         self.mean_module = gpytorch.means.ConstantMean()
         self.likelihood = gpytorch.likelihoods.GaussianLikelihood()
-        # self.covar_module = gpytorch.kernels.ScaleKernel(gpytorch.kernels.RBFKernel())
-        # XZ: remove the outside scaling factor for now
         if kernel_type == "se":
-          self.covar_module = RBFKernelDirectionalGrad()
+          self.covar_module = gpytorch.kernels.ScaleKernel(RBFKernelDirectionalGrad())
         elif kernel_type == 'matern':
-          self.covar_module = MaternKernelDirectionalGrad()
+          self.covar_module = gpytorch.kernels.ScaleKernel(MaternKernelDirectionalGrad())
    
 
     def forward(self, x, **params):
@@ -89,36 +87,20 @@ def select_cols_of_y(y_batch,minibatch_dim,dim):
   return y_batch,derivative_directions
 
 
-def train_gp(model, likelihood, train_x, train_y, 
+def train_gp(model, train_x, train_y, 
     num_directions,
-    num_epochs=1000, train_batch_size=1024,lr=0.01,
-    device="cpu", 
+    num_epochs=1000, 
+    train_batch_size=1024,
+    lr=0.01, scheduler="multistep", gamma=1.0,
     mll_type="ELBO",
+    device="cpu", 
+    tracker=None,
+    save_model=False, save_path=None,
+    test_x=None, test_y=None,
+    load_run_path=None,
+    debug=False, verbose=False
   ):
-  """Train a Derivative GP with the Directional Derivative
-  Variational Inference method
-
-  train_dataset: torch Dataset
-  num_inducing: int, number of inducing points
-  num_directions: int, number of inducing directions (per inducing point)
-  minbatch_size: int, number of data points in a minibatch
-  minibatch_dim: int, number of derivative per point in minibatch training
-                 WARNING: This must equal num_directions until we complete
-                 the PR in GpyTorch.
-  num_epochs: int, number of epochs
-  inducing_data_initialization: initialize the inducing points as a set of 
-      data points. If False, the inducing points are generated on the unit cube
-      uniformly, U[0,1]^d.
-  learning_rate_hypers, float: initial learning rate for the hyper optimizer
-  learning_rate_ngd, float: initial learning rate for the variational optimizer
-  use_ngd, bool: use NGD
-  use_ciq, bool: use CIQ
-  lr_sched, function handle: used in the torch LambdaLR learning rate scheduler. At
-      each iteration the initial learning rate is multiplied by the result of 
-      this function. The function input is the epoch, i.e. lr_sched(epoch). 
-      The function should return a single number. If lr_sched is left as None, 
-      the learning rate will be held constant.
-  """
+  
 
   train_dataset = TensorDataset(train_x, train_y)
   dim = len(train_dataset[0][0])
@@ -128,27 +110,23 @@ def train_gp(model, likelihood, train_x, train_y,
 
   if device == "cuda":
     model = model.to(device=torch.device("cuda"))
-    likelihood = likelihood.to(device=torch.device("cuda"))
 
-  # training mode
-  model.train()
-  likelihood.train()
 
   optimizer = torch.optim.Adam([
       {'params': model.parameters()},
-      {'params': likelihood.parameters()},
   ], lr=lr)
       
-  lr_sched = lambda epoch: 1.0
-  optimizer_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_sched)
-  
+  print("model.params: ", list(model.parameters()))
+  milestones = [int(num_epochs*len(train_loader)/3), int(2*num_epochs*len(train_loader)/3)]
+  scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones, gamma=gamma)
+      
   # mll
   if mll_type=="ELBO":
-    mll = gpytorch.mlls.VariationalELBO(likelihood, model, num_data=num_data)
+    mll = gpytorch.mlls.VariationalELBO(model.likelihood, model, num_data=num_data)
   elif mll_type=="PLL": 
-    mll = gpytorch.mlls.PredictiveLogLikelihood(likelihood, model, num_data=num_data)
+    mll = gpytorch.mlls.PredictiveLogLikelihood(model.likelihood, model, num_data=num_data)
 
-  total_step=0
+  model.train()
   for i in range(num_epochs):
     # loop through minibatches
     for x_batch, y_batch in train_loader:
@@ -164,27 +142,39 @@ def train_gp(model, likelihood, train_x, train_y,
       y_batch = y_batch.reshape(torch.numel(y_batch))
 
       optimizer.zero_grad()
-      output = likelihood(model(x_batch,**kwargs))
+      output = model.likelihood(model(x_batch,**kwargs))
       loss = -mll(output, y_batch)
       loss.backward()
       # step optimizers and learning rate schedulers
       optimizer.step()
-      optimizer_scheduler.step()
-      if total_step % 100 == 0:
-          means = output.mean[::num_directions+1]
-          stds  = output.variance.sqrt()[::num_directions+1]
-          nll   = -torch.distributions.Normal(means, stds).log_prob(y_batch[::num_directions+1]).mean()
-          print(f"Epoch: {i}; total_step: {total_step}, loss: {loss.item()}, nll: {nll}")
-          sys.stdout.flush()
+      scheduler.step()
 
-      total_step +=1
-     
-  return model,likelihood
+    means = output.mean[::num_directions+1].cpu()
+    stds  = output.variance[::num_directions+1].sqrt().cpu()
+    rmse = torch.mean((means - y_batch[::num_directions+1].cpu())**2).sqrt()
+    nll   = -torch.distributions.Normal(means, stds).log_prob(y_batch.cpu()).mean()
+    if tracker is not None:
+      tracker.log({
+          "loss": loss.item(), 
+          "training_rmse": rmse,
+          "training_nll": nll,    
+      }, step=i)
+    if i % 10 == 0:
+      _, _, test_rmse, test_nll, _ = eval_gp(model, test_x, test_y,num_directions,
+              test_batch_size=1024, device=device, tracker=tracker, step=i)
+      model.train()
+            
+  _, _, test_rmse, test_nll, _ = eval_gp(model, test_x, test_y,num_directions,
+    est_batch_size=1024, device=device, tracker=tracker, step=i)
+  print(f"\nLast testing rmse: {test_rmse:.3e}, nll:{test_nll:.3f}.")
+  return model
 
 
-def eval_gp(model,likelihood,
+def eval_gp(model,
     test_x, test_y,
-    num_directions=1,test_batch_size=1,
+    test_batch_size=1,
+    tracker=None,
+    step=None,
     device='cpu'):
 
   
@@ -192,7 +182,6 @@ def eval_gp(model,likelihood,
   test_loader = DataLoader(test_dataset, batch_size=test_batch_size, shuffle=False)
   dim = len(test_dataset[0][0])    
   model.eval()
-  likelihood.eval()
   
   kwargs = {}
   means = torch.tensor([0.])
@@ -203,26 +192,29 @@ def eval_gp(model,likelihood,
         x_batch = x_batch.cuda()
         y_batch = y_batch.cuda()
       # redo derivative directions b/c batch size is not consistent
-    #   derivative_directions = torch.eye(dim)[:num_directions]
-      derivative_directions = torch.zeros((num_directions, dim)) 
-      for i in range(num_directions):
+      derivative_directions = torch.zeros((1, dim)) 
+      for i in range(1):
           derivative_directions[i,i] = 1
       derivative_directions = derivative_directions.repeat(len(x_batch),1)
       kwargs['derivative_directions'] = derivative_directions
       # predict
-      preds = likelihood(model(x_batch,**kwargs))
+      preds = model.likelihood(model(x_batch,**kwargs))
       if device == torch.device("cuda"):
-        means = torch.cat([means, preds.mean.cpu()])
-        variances = torch.cat([variances, preds.variance.cpu()])
+        means = torch.cat([means, preds.mean[::2].cpu()])
+        variances = torch.cat([variances, preds.variance[::2].cpu()])
       else:
-        means = torch.cat([means, preds.mean])
-        variances = torch.cat([variances, preds.variance])
+        means = torch.cat([means, preds.mean[::2]])
+        variances = torch.cat([variances, preds.variance[::2]])
 
   means = means[1:]
   variances = variances[1:]
   rmse = torch.mean((means - test_y.cpu())**2).sqrt()
   nll = -torch.distributions.Normal(means, variances.sqrt()).log_prob(test_y.cpu()).mean()
-
+  if tracker is not None:
+    tracker.log({
+        "testing_rmse":rmse, 
+        "testing_nll":nll,
+    }, step=step)
   print("Done Testing!")
 
   return means, variances, rmse, nll

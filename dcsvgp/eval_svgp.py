@@ -6,7 +6,6 @@ import random
 import torch
 import gpytorch
 import pickle as pkl
-sys.path.append("./models")
 from svgp import GPModel, train_gp, eval_gp
 from pivoted import _select_inducing_points
 from eval_experiment import Experiment

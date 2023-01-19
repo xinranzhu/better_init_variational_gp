@@ -9,7 +9,7 @@ import torch
 from gpytorch import settings
 from gpytorch.distributions import MultivariateNormal
 from gpytorch.lazy import DiagLazyTensor, MatmulLazyTensor, RootLazyTensor, SumLazyTensor, TriangularLazyTensor, delazify
-from gpytorch.settings import trace_mode
+from gpytorch.settings import trace_mode, _linalg_dtype_cholesky
 from gpytorch.utils.cholesky import psd_safe_cholesky
 from gpytorch.utils.errors import CachingError
 from gpytorch.utils.memoize import cached, clear_cache_hook, pop_from_cache_ignore_args
@@ -65,15 +65,21 @@ class DirectionalGradVariationalStrategy(_VariationalStrategy):
         https://www.repository.cam.ac.uk/handle/1810/278022
     """
 
-    def __init__(self, model, inducing_points, inducing_directions,variational_distribution, learn_inducing_locations=True):
+    def __init__(self, model, inducing_points, inducing_directions, variational_distribution, covar_module_mean, learn_inducing_locations=True):
         super().__init__(model, inducing_points, variational_distribution, learn_inducing_locations)
         self.register_buffer("updated_strategy", torch.tensor(True))
         self._register_load_state_dict_pre_hook(_ensure_updated_strategy_flag_set)
         self.register_parameter(name="inducing_directions", parameter=torch.nn.Parameter(inducing_directions.clone()))
+        self.covar_module_mean = covar_module_mean
         # self.register_buffer("variational_inducing_directions_initialized", torch.tensor(0))
 
     @cached(name="cholesky_factor", ignore_args=True)
     def _cholesky_factor(self, induc_induc_covar):
+        L = psd_safe_cholesky(delazify(induc_induc_covar).double(), jitter=settings.cholesky_jitter.value())
+        return TriangularLazyTensor(L)
+
+    @cached(name="cholesky_factor_mean", ignore_args=True)
+    def _cholesky_factor_mean(self, induc_induc_covar):
         L = psd_safe_cholesky(delazify(induc_induc_covar).double(), jitter=settings.cholesky_jitter.value())
         return TriangularLazyTensor(L)
 
@@ -91,7 +97,7 @@ class DirectionalGradVariationalStrategy(_VariationalStrategy):
 
     def forward(self, x, inducing_points, inducing_values,variational_inducing_covar=None, **kwargs):
         # Compute full prior distribution
-        print("kwargs = ", kwargs)
+        
         # get the inducing directions
         inducing_directions =self.inducing_directions
         derivative_directions = kwargs['derivative_directions']
@@ -107,24 +113,25 @@ class DirectionalGradVariationalStrategy(_VariationalStrategy):
 
         kwargs['v1'] = inducing_directions.to(x.device) # mp*1 [p_u1, ..., p_um]
         kwargs['v2'] = derivative_directions.to(x.device) # nd*1, [e1, e2, e3, e1, e2, e3, ...]
-        self.model.covar_module.base_kernel.set_num_directions(num_directions,num_derivative_directions)
+        self.model.covar_module.base_kernel.set_num_directions(num_directions, num_derivative_directions)
         full_output = self.model.covar_module(inducing_points,x, **kwargs) 
         induc_data_covar  = full_output.evaluate()
 
         kwargs['v1'] = derivative_directions.to(x.device)
         kwargs['v2'] = inducing_directions.to(x.device)
-        self.model.covar_module.base_kernel.set_num_directions(num_derivative_directions,num_directions)
+        self.model.covar_module.base_kernel.set_num_directions(num_derivative_directions, num_directions)
         full_output = self.model.covar_module(x,inducing_points, **kwargs)
         data_induc_covar = full_output.evaluate()
 
         kwargs['v1'] = inducing_directions.to(x.device)
         kwargs['v2'] = inducing_directions.to(x.device)
-        self.model.covar_module.base_kernel.set_num_directions(num_directions,num_directions)
+        self.model.covar_module.base_kernel.set_num_directions(num_directions, num_directions)
         full_output = self.model.forward(inducing_points, **kwargs)
         induc_induc_covar  = full_output.lazy_covariance_matrix.add_jitter()
+
         kwargs['v1'] = derivative_directions.to(x.device)
         kwargs['v2'] = derivative_directions.to(x.device)
-        self.model.covar_module.base_kernel.set_num_directions(num_derivative_directions,num_derivative_directions)        
+        self.model.covar_module.base_kernel.set_num_directions(num_derivative_directions, num_derivative_directions)        
         full_output = self.model.forward(x, **kwargs)
         data_data_covar  = full_output.lazy_covariance_matrix
 
@@ -158,31 +165,73 @@ class DirectionalGradVariationalStrategy(_VariationalStrategy):
             except CachingError:
                 pass
             L = self._cholesky_factor(induc_induc_covar)
-        interp_term = L.inv_matmul(induc_data_covar.double()).to(full_inputs.dtype)
+        interp_term = L.inv_matmul(induc_data_covar.type(_linalg_dtype_cholesky.value())).to(full_inputs.dtype)
         # term K_ZZ^{-1/2} K_XZ^T 
-        interp_term_trans = L.inv_matmul(data_induc_covar.transpose(-1,-2).double()).to(full_inputs.dtype)
+        interp_term_trans = L.inv_matmul(data_induc_covar.transpose(-1,-2).type(_linalg_dtype_cholesky.value())).to(full_inputs.dtype)
+        print("interp_term-interp_term_trans = ", torch.norm(interp_term-interp_term_trans))
+        import ipdb
+        ipdb.set_trace()
 
         # Compute the mean of q(f)
-        # k_XZ K_ZZ^{-1/2} (m - K_ZZ^{-1/2} \mu_Z) + \mu_X
-        # predictive_mean = (interp_term.transpose(-1, -2) @ inducing_values.unsqueeze(-1)).squeeze(-1) + test_mean
-        predictive_mean = (interp_term_trans.transpose(-1, -2) @ inducing_values.unsqueeze(-1)).squeeze(-1) + test_mean
+        # Q_XZ Q_ZZ^{-1/2} (m - Q_ZZ^{-1/2} \mu_Z) + \mu_X
+        kwargs['v1'] = inducing_directions.to(x.device) # mp*1 [p_u1, ..., p_um]
+        kwargs['v2'] = derivative_directions.to(x.device) # nd*1, [e1, e2, e3, e1, e2, e3, ...]
+        self.covar_module_mean.base_kernel.set_num_directions(num_directions, num_derivative_directions)
+        full_output = self.covar_module_mean(inducing_points,x, **kwargs) 
+        induc_data_covar_mean  = full_output.evaluate()
+
+        kwargs['v1'] = derivative_directions.to(x.device)
+        kwargs['v2'] = inducing_directions.to(x.device)
+        self.covar_module_mean.base_kernel.set_num_directions(num_derivative_directions, num_directions)
+        full_output = self.covar_module_mean(x,inducing_points, **kwargs)
+        data_induc_covar_mean = full_output.evaluate()
+
+        kwargs['v1'] = inducing_directions.to(x.device)
+        kwargs['v2'] = inducing_directions.to(x.device)
+        self.covar_module_mean.base_kernel.set_num_directions(num_directions, num_directions)
+        full_output = self.covar_module_mean(inducing_points, inducing_points, **kwargs) 
+        induc_induc_covar_mean  = full_output.add_jitter()
+        
+        L_mean = self._cholesky_factor_mean(induc_induc_covar_mean)
+        if L_mean.shape != induc_induc_covar_mean.shape:
+            try:
+                pop_from_cache_ignore_args(self, "cholesky_factor_mean")
+            except CachingError:
+                pass
+            L_mean = self._cholesky_factor_mean(induc_induc_covar_mean)
+        interp_term_mean = L_mean.inv_matmul(induc_data_covar_mean.type(_linalg_dtype_cholesky.value())).to(full_inputs.dtype)
+        interp_term_trans_mean = L_mean.inv_matmul(data_induc_covar_mean.transpose(-1,-2).type(_linalg_dtype_cholesky.value())).to(full_inputs.dtype)
+        predictive_mean = (interp_term_trans_mean.transpose(-1, -2) @ inducing_values.unsqueeze(-1)).squeeze(-1) + test_mean
+        
 
         # Compute the covariance of q(f)
-        # K_XX + k_XZ K_ZZ^{-1/2} (S - I) K_ZZ^{-1/2} k_ZX
+        # K_XX + Q_XZ Q_ZZ^{-T/2} S Q_ZZ^{-1/2} Q_ZX - k_XZ K_ZZ^{-T/2} I K_ZZ^{-1/2} K_ZX
         middle_term = self.prior_distribution.lazy_covariance_matrix.mul(-1)
         if variational_inducing_covar is not None:
-            middle_term = SumLazyTensor(variational_inducing_covar, middle_term)
+            # tail_term = Q_XZ * Q_ZZ_^{-T/2} * S * Q_ZZ_^{-/2} * Q_XZ
+            tail_term = interp_term_trans_mean.transpose(-1, -2) @ variational_inducing_covar.evaluate() @ interp_term_mean 
+        #     middle_term = SumLazyTensor(variational_inducing_covar, middle_term)
 
         if trace_mode.on():
+            # predictive_covar = (
+            #     data_data_covar.add_jitter(1e-4).evaluate()
+            #     + interp_term_trans.transpose(-1, -2) @ middle_term.evaluate() @ interp_term
+            # )
             predictive_covar = (
                 data_data_covar.add_jitter(1e-4).evaluate()
-                + interp_term_trans.transpose(-1, -2) @ middle_term.evaluate() @ interp_term
+                + interp_term_trans.transpose(-1, -2) @ middle_term.evaluate() @ interp_term + tail_term
             )
         else:
+            # predictive_covar = SumLazyTensor(
+            #     data_data_covar.add_jitter(1e-4),
+            #     MatmulLazyTensor(interp_term_trans.transpose(-1, -2), middle_term @ interp_term),
+            # )
             predictive_covar = SumLazyTensor(
+                SumLazyTensor(
                 data_data_covar.add_jitter(1e-4),
                 MatmulLazyTensor(interp_term_trans.transpose(-1, -2), middle_term @ interp_term),
-            )
+                ), tail_term
+                )
 
         # Return the distribution
         return MultivariateNormal(predictive_mean, predictive_covar)

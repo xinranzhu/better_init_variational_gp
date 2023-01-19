@@ -4,8 +4,8 @@ import time
 import torch
 import gpytorch
 from gpytorch.models import ApproximateGP
-from gpytorch.variational import CholeskyVariationalDistribution, NaturalVariationalDistribution
-from gpytorch.variational import VariationalStrategy, OrthogonallyDecoupledVariationalStrategy
+from gpytorch.variational import CholeskyVariationalDistribution, DeltaVariationalDistribution
+from gpytorch.variational import VariationalStrategy, FullyDecoupledVariationalStrategy
 from torch.utils.data import TensorDataset, DataLoader
 
 
@@ -16,17 +16,17 @@ class GPModel(ApproximateGP):
         ):
         assert not use_ngd
         covar_variational_distribution = CholeskyVariationalDistribution(covar_inducing_points.size(-2))
-        mean_variational_distribution = gpytorch.variational.DeltaVariationalDistribution(mean_inducing_points.size(-2))
+        mean_variational_distribution = DeltaVariationalDistribution(mean_inducing_points.size(-2))
         covar_variational_strategy = VariationalStrategy(
             self, covar_inducing_points,
             covar_variational_distribution,
             learn_inducing_locations=learn_inducing_locations
         )
 
-        # where predictive_mean = test_mean + Qxu * t, test_mean = Kxz Kzz^{-1} m, 
-        # Qxu = Kxu + k_xz K_zz^{-T/2} (S - I) K_zz^{-1/2} K_zu
-        variational_strategy = OrthogonallyDecoupledVariationalStrategy(
+        # predictive mean = Kxu Kuu^{-1} m 
+        variational_strategy = FullyDecoupledVariationalStrategy(
             covar_variational_strategy, mean_inducing_points, mean_variational_distribution)
+        covar_variational_distribution.variational_mean.requires_grad=False
 
         super(GPModel, self).__init__(variational_strategy)
         
@@ -36,13 +36,16 @@ class GPModel(ApproximateGP):
         # XZ: remove the outside scaling factor for now
         if kernel_type == 'se':
             self.covar_module = gpytorch.kernels.RBFKernel()
-            self.covar_module2 = gpytorch.kernels.RBFKernel() # fixed
+            self.covar_module_main = gpytorch.kernels.RBFKernel()
         elif kernel_type == 'matern1/2':
             self.covar_module = gpytorch.kernels.MaternKernel(nu=0.5)
+            self.covar_module_main = gpytorch.kernels.MaternKernel(nu=0.5)
         elif kernel_type == 'matern3/2':
             self.covar_module = gpytorch.kernels.MaternKernel(nu=1.5)
+            self.covar_module_main = gpytorch.kernels.MaternKernel(nu=1.5)
         elif kernel_type == 'matern5/2':
             self.covar_module = gpytorch.kernels.MaternKernel(nu=2.5)
+            self.covar_module_main = gpytorch.kernels.MaternKernel(nu=2.5)
          
     def forward(self, x, **kwargs):
         mean_x = self.mean_module(x)
@@ -74,9 +77,12 @@ def train_gp(model, train_x, train_y,
     test_x=None, test_y=None,
     val_x=None, val_y=None,
     load_run_path=None,
+    learn_main=True, learn_other=True,
+    lr2=None, gamma2=None,
     debug=False, verbose=True,
     ):
-
+    gamma2 = gamma if gamma2 is None else gamma2
+    lr2 = lr if lr2 is None else lr2
     assert use_ngd==False
 
     train_dataset = TensorDataset(train_x, train_y)
@@ -91,23 +97,50 @@ def train_gp(model, train_x, train_y,
     if device == "cuda":
         model = model.to(device=torch.device("cuda"))
 
-    optimizer = torch.optim.Adam([
-         {'params': model.parameters()},
-    ], lr=lr)
-    check_optimizer(optimizer, name="optimizer")
+    optimizer_main = None
+    scheduler_main = None
+    scheduler_other = None
+    if learn_main:
+        optimizer_main = torch.optim.Adam([
+                    {'params': model.variational_strategy.inducing_points}, 
+                    {'params': model.variational_strategy._variational_distribution.variational_mean},
+                    {'params': model.covar_module_main.raw_lengthscale},
+                ], lr=lr)
+    else: # use fixed preditive mean
+        model.variational_strategy.inducing_points.requires_grad = False
+        model.variational_strategy._variational_distribution.variational_mean.requires_grad = False
+        model.covar_module_main.raw_lengthscale.requires_grad = False
 
+    if learn_other:
+        optimizer_other = torch.optim.Adam([
+                        {'params': model.variational_strategy.base_variational_strategy.inducing_points}, 
+                        {'params': model.variational_strategy.base_variational_strategy._variational_distribution.chol_variational_covar},
+                        # {'params': model.variational_strategy.base_variational_strategy._variational_distribution.variational_mean}, # minor inducing, cholesky m and S 
+                        {'params': model.mean_module.constant}, 
+                        {'params': model.likelihood.raw_noise},
+                        {'params': model.covar_module.raw_lengthscale},
+        ], lr=lr2)
+
+    check_optimizer(optimizer_main, name="optimizer_main")
+    check_optimizer(optimizer_other, name="optimizer_other")
 
 
     if scheduler == "multistep":
         milestones = [int(num_epochs*len(train_loader)/3), int(2*num_epochs*len(train_loader)/3)]
-        scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones, gamma=gamma)
+        if optimizer_main is not None:
+            scheduler_main = torch.optim.lr_scheduler.MultiStepLR(optimizer_main, milestones, gamma=gamma)
+        scheduler_other = torch.optim.lr_scheduler.MultiStepLR(optimizer_other, milestones, gamma=gamma2)
     elif scheduler == None:
         lr_sched = lambda epoch: 1.0
-        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_sched)
+        if optimizer_main is not None:
+            scheduler_main = torch.optim.lr_scheduler.LambdaLR(optimizer_main, lr_lambda=lr_sched)
+        scheduler_other = torch.optim.lr_scheduler.LambdaLR(optimizer_other, lr_lambda=lr_sched)
     elif scheduler == "lambda":
         lr_sched = lambda epoch: 0.8 ** epoch
-        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_sched)
-
+        if optimizer_main is not None:
+            scheduler_main = torch.optim.lr_scheduler.LambdaLR(optimizer_main, lr_lambda=lr_sched)
+        scheduler_other = torch.optim.lr_scheduler.LambdaLR(optimizer_other, lr_lambda=lr_sched)
+    
     
 
     if mll_type == "ELBO":
@@ -128,12 +161,20 @@ def train_gp(model, train_x, train_y,
             if device == "cuda":
                 x_batch = x_batch.cuda()
                 y_batch = y_batch.cuda()
-            optimizer.zero_grad()
+            if optimizer_main is not None:
+                optimizer_main.zero_grad()
+            if optimizer_other is not None:
+                optimizer_other.zero_grad()
             output = model.likelihood(model(x_batch))
             loss = -mll(output, y_batch)
             loss.backward()
-            optimizer.step()
-            scheduler.step()
+
+            if optimizer_main is not None:
+                optimizer_main.step()
+                scheduler_main.step()
+            if optimizer_other is not None:
+                optimizer_other.step()
+                scheduler_other.step()
 
         means = output.mean.cpu()
         stds  = output.variance.sqrt().cpu()
@@ -153,10 +194,10 @@ def train_gp(model, train_x, train_y,
                 device=device, tracker=tracker, step=i+previous_epoch, name="testing",
                 )
             if debug: 
-                print("u.grad, ", model.variational_strategy.inducing_points.grad.abs().mean().item())
+                # print("u.grad, ", model.variational_strategy.inducing_points.grad.abs().mean().item())
                 print("z.grad, ", model.variational_strategy.base_variational_strategy.inducing_points.grad.abs().mean().item())
-                print("main mean.grad, ", model.variational_strategy._variational_distribution.variational_mean.grad.abs().mean().item())
-                print("minor mean.grad, ", model.variational_strategy.base_variational_strategy._variational_distribution.variational_mean.grad.abs().mean().item())
+                # print("main mean.grad, ", model.variational_strategy._variational_distribution.variational_mean.grad.abs().mean().item())
+                # print("minor mean.grad, ", model.variational_strategy.base_variational_strategy._variational_distribution.variational_mean.grad.abs().mean().item())
                 print("minor covar.grad, ", model.variational_strategy.base_variational_strategy._variational_distribution.chol_variational_covar.grad.abs().mean().item())
                 print("raw_lengthscale.grad, ", model.covar_module.raw_lengthscale.grad.abs().mean().item())
                 print("raw_noise.grad, ", model.likelihood.raw_noise.grad.abs().mean().item())
@@ -179,6 +220,7 @@ def train_gp(model, train_x, train_y,
     _, _, test_rmse, test_nll = eval_gp(model, test_x, test_y, device=device, 
         tracker=tracker, step=i+previous_epoch, name="testing",
         )
+        
     print(f"\nLast testing rmse: {test_rmse:.3e}, nll:{test_nll:.3f}.")
 
 

@@ -7,7 +7,7 @@ import torch
 import gpytorch
 import pickle as pkl
 sys.path.append("./models")
-from svgp import GPModel, train_gp, eval_gp
+from slsvgp import GPModel, train_gp, eval_gp
 from pivoted import _select_inducing_points
 from eval_experiment import Experiment
 
@@ -23,20 +23,19 @@ try:
 except ModuleNotFoundError:
     LOG_WANDB = False
 
-class SVGP_exp(Experiment):
+class SLSVGP_exp(Experiment):
     def __init__(self,**kwargs):
-        super().__init__(**kwargs, model="SVGP")
+        super().__init__(**kwargs, model="SLSVGP2")
         
-    def init_hypers(self, num_inducing=500, 
+    def init_hypers(self, num_inducing=2, 
         init_method="random", 
-        init_expid=None,
-        learn_u=True, 
-        learn_m=True,
+        init_expid="-",
         use_ngd=False, ngd_lr=0.1,
         save_model=False,
         init_theta=True,
         init_noise=True,
         init_covar=True,
+        init_theta_covar=True,
         init_mean=True, 
         lm_step=None,
         ):
@@ -47,8 +46,6 @@ class SVGP_exp(Experiment):
         self.method_args['init_hypers']['m'] = m
         del self.method_args['init_hypers']['self']
 
-        self.learn_u = learn_u
-        self.learn_m = learn_m
 
         if init_method.startswith("random"):
             rand_index = random.sample(range(self.train_n), num_inducing)
@@ -82,7 +79,7 @@ class SVGP_exp(Experiment):
         
         u0 = torch.tensor(u0)
         model = GPModel(inducing_points=u0, 
-                learn_inducing_locations=learn_u,
+                learn_inducing_locations=True,
                 use_ngd=use_ngd)
         
         if init_method == "pivchol":
@@ -96,7 +93,7 @@ class SVGP_exp(Experiment):
             )
             print("norm difference between u0 and u0_new: ", torch.norm(u0-u0_new))
             model = GPModel(inducing_points=u0_new, 
-                learn_inducing_locations=learn_u,
+                learn_inducing_locations=True,
                 use_ngd=use_ngd)
 
         if init_method not in {"random", "kmeans", "random_init_noise", "pivchol"}:
@@ -104,9 +101,12 @@ class SVGP_exp(Experiment):
             if use_ngd:
                 hypers["variational_strategy._variational_distribution.natural_vec"] = c.to(u0.device)
             else:
+                if init_theta_covar:
+                    print("initializing theta for covar.")
+                    hypers['covar_module.lengthscale'] =  torch.tensor(theta)
                 if init_theta:
                     print("initializing theta.")
-                    hypers['covar_module.lengthscale'] =  torch.tensor(theta)
+                    hypers['covar_module_main.lengthscale'] =  torch.tensor(theta)
                 if init_noise: 
                     print("initializing noise.")
                     hypers["likelihood.noise_covar.noise"] = torch.tensor(sigma**2)
@@ -138,9 +138,7 @@ class SVGP_exp(Experiment):
         train_batch_size=1024,
         mll_type="PLL", beta=1.0,
         load_run=None,
-        learn_S_only=False,
-        separate_group=None, lr2=None, gamma2=None,
-        learn_variational_only=False, learn_hyper_only=False,
+        lr2=None, gamma2=None,
         debug=False, verbose=True,
         ):
 
@@ -163,7 +161,6 @@ class SVGP_exp(Experiment):
             self.train_x, self.train_y, 
             num_epochs=num_epochs, 
             train_batch_size=train_batch_size,
-            learn_inducing_values=self.learn_m,
             lr=lr,
             scheduler=scheduler, 
             gamma=gamma,
@@ -177,10 +174,7 @@ class SVGP_exp(Experiment):
             test_x=self.test_x, test_y=self.test_y,
             val_x=self.val_x, val_y=self.val_y,
             load_run_path=load_run_path,
-            learn_S_only=learn_S_only,
-            separate_group=separate_group, lr2=lr2, gamma2=gamma2,
-            learn_variational_only=learn_variational_only,
-            learn_hyper_only=learn_hyper_only,
+            lr2=lr2, gamma2=gamma2,
             debug=debug, verbose=verbose,
         )
 
@@ -200,7 +194,7 @@ class SVGP_exp(Experiment):
         return self
 
 if __name__ == "__main__":
-    fire.Fire(SVGP_exp)
+    fire.Fire(SLSVGP_exp)
 
 # use lm initialization
 # python eval_svgp.py --obj_name 3droad --dim 2 - init_hypers --num_inducing 50 --init_method lm --init_expid TEST - train --num_epochs 300 --lr 0.0005 --scheduler multistep --gamma 0.1 --train_batch_size 1024 --elbo_beta 0.1 --mll_type PLL done

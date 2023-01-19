@@ -2,6 +2,7 @@
 *.pkl
 *.ipynb
 a.out*
+dcsvgp/wandb
 svgp_evaluation/wandb
 data
 slurm_output
