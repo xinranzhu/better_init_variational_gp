@@ -55,7 +55,7 @@ class Experiment(object):
             self.val_n = 0
         else:
             # load training and testing data
-            data_loader = 0 if obj_name in {"bike", "energy", "protein"} else 1
+            data_loader = 0 if obj_name in {"bike2", "energy", "protein2"} else 1
             if data_loader:
                 self.train_x, self.train_y, self.val_x, self.val_y, self.test_x, self.test_y = load_data(dataset=obj_name, seed=seed)
             else:
