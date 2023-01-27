@@ -1,0 +1,3 @@
+[submodule "dcsvgp/PyTorch-LBFGS"]
+	path = dcsvgp/PyTorch-LBFGS
+	url = https://github.com/hjmshi/PyTorch-LBFGS.git
