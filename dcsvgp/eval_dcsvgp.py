@@ -146,7 +146,7 @@ class DCSVGP_exp(Experiment):
         lr2=None, gamma2=None,
         debug=False, verbose=True,
         save_u=False,lengthscale_only=False,
-        alpha=-1,
+        alpha=-1, idx=0,
         ):
 
         self.method_args['train'] = locals()
@@ -180,7 +180,7 @@ class DCSVGP_exp(Experiment):
             val_x=self.val_x, val_y=self.val_y,
             save_u=save_u, obj_name=self.obj_name,
             lengthscale_only=lengthscale_only,
-            alpha=alpha,
+            alpha=alpha, idx=idx,
         )
 
         if self.save_model:

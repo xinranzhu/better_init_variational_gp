@@ -69,7 +69,7 @@ def train_gp(model, train_x, train_y,
     separate_group=None, lr2=None, gamma2=None,
     learn_S_only=False, learn_variational_only=False, learn_hyper_only=False,
     debug=False, verbose=True, save_u=False, obj_name=None,
-    lengthscale_only=False, 
+    lengthscale_only=False, idx=0,
     ):
     gamma2 = gamma if gamma2 is None else gamma2
     lr2 = lr if lr2 is None else lr2
@@ -220,7 +220,8 @@ def train_gp(model, train_x, train_y,
                 optimizer1.zero_grad()
             if optimizer2 is not None:
                 optimizer2.zero_grad()
-            output = model.likelihood(model(x_batch))
+            res, var_k, var_q = model(x_batch)
+            output = model.likelihood(res)
             # output = model(x_batch)
             loss = -mll(output, y_batch)
             loss.backward()
@@ -235,14 +236,30 @@ def train_gp(model, train_x, train_y,
         stds  = output.variance.sqrt().cpu()
         rmse = torch.mean((means - y_batch.cpu())**2).sqrt()
         nll   = -torch.distributions.Normal(means, stds).log_prob(y_batch.cpu()).mean()
+        S = model.variational_strategy._variational_distribution.chol_variational_covar
         if tracker is not None:
             tracker.log({
                 "loss": loss.item(), 
                 "training_rmse": rmse,
-                "training_nll": nll,    
+                "training_nll": nll,  
+                "noise": model.likelihood.noise.item(),
+                "train_var": output.variance.cpu()[idx],
+                "var_k": var_k[idx],
+                "var_q": var_q[idx],  
+                "pred_mean": output.mean.cpu()[idx],
+                "true_y": y_batch[idx],
+                "ls": model.covar_module.lengthscale.item(),
+                "train_var_denoise": res.variance.cpu()[idx],
+                "train_var_comp": var_k[idx] + var_q[idx], 
+                "S_mean": S.mean(),
             }, step=i+previous_epoch)
         if i % 10 == 0:
-            print(f"loss: {loss.item()}, lengthscale: {model.covar_module.lengthscale.item()}")
+            print(f"loss: {loss.item():.3f}, lengthscale: {model.covar_module.lengthscale.item():.2e}")
+            print(f"train_rmse: {rmse:.2e}, train_nll: {nll:.2e}.")
+            print(f"train_var: {output.variance.cpu()}")
+            print(f"var_k: {var_k}")
+            print(f"var_q: {var_q}")
+            print(f"S: mean {S.mean():.2e} median {S.median():.2e} min {S.min():.2e} max {S.max():.2e}.")
             if val_x is not None:
                 min_val_rmse, min_val_nll = val_gp(model, val_x, val_y,
                     test_batch_size=1024, device=device, tracker=tracker, step=i+previous_epoch, 
@@ -320,7 +337,8 @@ def eval_gp(model, test_x, test_y,
             if device == "cuda":
                 x_batch = x_batch.cuda()
                 y_batch = y_batch.cuda()
-            preds = model.likelihood(model(x_batch))
+            res, var_k, var_q = model(x_batch)
+            preds = model.likelihood(res)
             # preds = model(x_batch)
             if device == "cuda":
                 means = torch.cat([means, preds.mean.cpu()])
@@ -365,7 +383,8 @@ def val_gp(model, val_x, val_y,
         for x_batch, _ in val_loader:
             if device == "cuda":
                 x_batch = x_batch.cuda()
-            preds = model.likelihood(model(x_batch))
+            res, var_k, var_q = model(x_batch)
+            preds = model.likelihood(res)
             if device == "cuda":
                 means = torch.cat([means, preds.mean.cpu()])
                 variances = torch.cat([variances, preds.variance.cpu()])

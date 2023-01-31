@@ -50,7 +50,7 @@ def train_gp(model, train_x, train_y,
     save_u=False,obj_name=None,
     lengthscale_only=False,
     verbose=False,
-    alpha=-1,
+    alpha=-1, idx=0,
     ):
 
     train_dataset = TensorDataset(train_x, train_y)
@@ -103,7 +103,8 @@ def train_gp(model, train_x, train_y,
                 x_batch = x_batch.cuda()
                 y_batch = y_batch.cuda()
             optimizer.zero_grad()
-            output = model.likelihood(model(x_batch))
+            res, var_k, var_q = model(x_batch)
+            output = model.likelihood(res)
             loss = -mll(output, y_batch)
             loss.backward()
             optimizer.step()
@@ -112,14 +113,31 @@ def train_gp(model, train_x, train_y,
         stds  = output.variance.sqrt().cpu()
         rmse = torch.mean((means - y_batch.cpu())**2).sqrt()
         nll   = -torch.distributions.Normal(means, stds).log_prob(y_batch.cpu()).mean()
+        S = model.variational_strategy._variational_distribution.chol_variational_covar
         if tracker is not None:
             tracker.log({
                 "loss": loss.item(), 
                 "training_rmse": rmse,
-                "training_nll": nll,    
+                "training_nll": nll,   
+                "noise": model.likelihood.noise.item(),
+                "train_var": output.variance.cpu()[idx],
+                "var_k": var_k[idx],
+                "var_q": var_q[idx],
+                "pred_mean": output.mean.cpu()[idx],
+                "true_y": y_batch[idx],
+                "ls_mean":  model.variational_strategy.covar_module_mean.lengthscale.item(),
+                "ls": model.covar_module.lengthscale.item(),
+                "train_var_denoise": res.variance.cpu()[idx],
+                "train_var_comp": var_k[idx] + var_q[idx], 
+                "S_mean": S.mean(),
             }, step=i+previous_epoch)
-        if i % 10 == 0:
-            print(f"loss: {loss.item():.3f}, lengthscale_mean: {model.variational_strategy.covar_module_mean.lengthscale.item():.3f}, lengthscale_covar: {model.covar_module.lengthscale.item():.3f}")
+        if i % 30 == 0:
+            print(f"loss: {loss.item():.3f}, noise: {model.likelihood.noise.item():.2e}, ls_mean: {model.variational_strategy.covar_module_mean.lengthscale.item():.3f}, ls_covar: {model.covar_module.lengthscale.item():.3f}")
+            print(f"train_rmse: {rmse:.2e}, train_nll: {nll:.2e}.")
+            print(f"train_var: {output.variance.cpu()}")
+            print(f"var_k: {var_k}")
+            print(f"var_q: {var_q}")
+            print(f"S: mean {S.mean():.2e} median {S.median():.2e} min {S.min():.2e} max {S.max():.2e}.")
             if val_x is not None:
                 min_val_rmse, min_val_nll = val_gp(model, val_x, val_y,
                     test_batch_size=1024, device=device, tracker=tracker, step=i+previous_epoch, 
@@ -172,19 +190,24 @@ def eval_gp(model, test_x, test_y,
     model.eval()
     means = torch.tensor([0.])
     variances = torch.tensor([0.])
+    var_ks = torch.tensor([0.])
+    var_qs = torch.tensor([0.])
     start = time.time()
     with torch.no_grad():
         for x_batch, y_batch in test_loader:
             if device == "cuda":
                 x_batch = x_batch.cuda()
                 y_batch = y_batch.cuda()
-            preds = model.likelihood(model(x_batch))
+            res, var_k, var_q = model(x_batch)
+            preds = model.likelihood(res)
             if device == "cuda":
                 means = torch.cat([means, preds.mean.cpu()])
                 variances = torch.cat([variances, preds.variance.cpu()])
             else:
                 means = torch.cat([means, preds.mean])
                 variances = torch.cat([variances, preds.variance])
+            var_ks = torch.cat([var_ks, var_k])
+            var_qs = torch.cat([var_qs, var_q])
     end = time.time()
     testing_time = end - start
 
@@ -221,7 +244,8 @@ def val_gp(model, val_x, val_y,
         for x_batch, _ in val_loader:
             if device == "cuda":
                 x_batch = x_batch.cuda()
-            preds = model.likelihood(model(x_batch))
+            res, var_k, var_q = model(x_batch)
+            preds = model.likelihood(res)
             if device == "cuda":
                 means = torch.cat([means, preds.mean.cpu()])
                 variances = torch.cat([variances, preds.variance.cpu()])

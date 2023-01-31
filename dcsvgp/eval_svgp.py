@@ -148,6 +148,7 @@ class SVGP_exp(Experiment):
         separate_group=None, lr2=None, gamma2=None,
         learn_variational_only=False, learn_hyper_only=False,
         debug=False, verbose=True, save_u=False, lengthscale_only=False,
+        idx=0,
         ):
 
         self.method_args['train'] = locals()
@@ -189,7 +190,7 @@ class SVGP_exp(Experiment):
             learn_hyper_only=learn_hyper_only,
             debug=debug, verbose=verbose,
             save_u=save_u, obj_name=self.obj_name,
-            lengthscale_only=lengthscale_only,
+            lengthscale_only=lengthscale_only,idx=idx,
         )
 
         if self.save_model:
