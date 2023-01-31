@@ -8,6 +8,7 @@ data
 slurm_output
 *.sh
 svgp_evaluation/saved_models
+dcsvgp/saved_models/
 uci
 *.csv
 *.mat
