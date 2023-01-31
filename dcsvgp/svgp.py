@@ -58,7 +58,7 @@ def train_gp(model, train_x, train_y,
     num_epochs=1000, train_batch_size=1024,
     learn_inducing_values=True, lr=0.01,
     scheduler=None, gamma=0.3,
-    elbo_beta=0.1,
+    elbo_beta=1.0,
     mll_type="ELBO",
     device="cpu", tracker=None, 
     use_ngd=False, ngd_lr=0.1,
@@ -68,7 +68,8 @@ def train_gp(model, train_x, train_y,
     load_run_path=None,
     separate_group=None, lr2=None, gamma2=None,
     learn_S_only=False, learn_variational_only=False, learn_hyper_only=False,
-    debug=False, verbose=True
+    debug=False, verbose=True, save_u=False, obj_name=None,
+    lengthscale_only=False, 
     ):
     gamma2 = gamma if gamma2 is None else gamma2
     lr2 = lr if lr2 is None else lr2
@@ -79,9 +80,18 @@ def train_gp(model, train_x, train_y,
 
     previous_epoch = 0
     if load_run_path is not None:
+        print("Loading model ", load_run_path)
         last_run = torch.load(load_run_path)
+        last_run['model'].pop('variational_strategy.covar_module_mean.raw_lengthscale', None)
+        last_run['model'].pop('variational_strategy.covar_module_mean.raw_lengthscale_constraint.lower_bound', None)
+        last_run['model'].pop('variational_strategy.covar_module_mean.raw_lengthscale_constraint.upper_bound', None)
         model.load_state_dict(last_run["model"])
         previous_epoch = last_run["epoch"]
+        if lengthscale_only:
+            hypers = {}
+            hypers['covar_module.raw_lengthscale'] =  torch.tensor(0.)
+            model.initialize(**hypers)
+            previous_epoch = 0
 
     if device == "cuda":
         model = model.to(device=torch.device("cuda"))
@@ -159,8 +169,16 @@ def train_gp(model, train_x, train_y,
             ], lr=lr) 
         optimizer2 = None
 
-    check_optimizer(optimizer1, name="optimizer1")
-    check_optimizer(optimizer2, name="optimizer2")
+    if lengthscale_only:
+        print("learn lengthscale only")
+        optimizer1 =  torch.optim.Adam([
+                {'params': model.covar_module.raw_lengthscale}, 
+            ], lr=lr) 
+        optimizer2 = None
+        
+
+    # check_optimizer(optimizer1, name="optimizer1")
+    # check_optimizer(optimizer2, name="optimizer2")
 
     if scheduler == "multistep":
         milestones = [int(num_epochs*len(train_loader)/3), int(2*num_epochs*len(train_loader)/3)]
@@ -224,12 +242,15 @@ def train_gp(model, train_x, train_y,
                 "training_nll": nll,    
             }, step=i+previous_epoch)
         if i % 10 == 0:
-            min_val_rmse, min_val_nll = val_gp(model, val_x, val_y,
-                test_batch_size=1024, device=device, tracker=tracker, step=i+previous_epoch, 
-                min_val_rmse=min_val_rmse, min_val_nll=min_val_nll
-                )
-            _, _, test_rmse, test_nll, _ = eval_gp(model, test_x, test_y,
-                test_batch_size=1024, device=device, tracker=tracker, step=i+previous_epoch)
+            print(f"loss: {loss.item()}, lengthscale: {model.covar_module.lengthscale.item()}")
+            if val_x is not None:
+                min_val_rmse, min_val_nll = val_gp(model, val_x, val_y,
+                    test_batch_size=1024, device=device, tracker=tracker, step=i+previous_epoch, 
+                    min_val_rmse=min_val_rmse, min_val_nll=min_val_nll
+                    )
+            if test_x is not None:
+                _, _, test_rmse, test_nll, _ = eval_gp(model, test_x, test_y,
+                    test_batch_size=1024, device=device, tracker=tracker, step=i+previous_epoch)
             
             if debug:
                 print("u.grad, ", model.variational_strategy.inducing_points.grad.abs().mean().item())
@@ -252,14 +273,24 @@ def train_gp(model, train_x, train_y,
 
     end = time.time()
     training_time = end - start
-    min_val_rmse, min_val_nll = val_gp(model, val_x, val_y,
-                test_batch_size=1024, device=device, tracker=tracker, step=i+previous_epoch, 
-                min_val_rmse=min_val_rmse, min_val_nll=min_val_nll
-                )
-    _, _, test_rmse, test_nll, _ = eval_gp(model, test_x, test_y,
-        test_batch_size=1024, device=device, tracker=tracker, step=i+previous_epoch)
-    print(f"\nLast testing rmse: {test_rmse:.3e}, nll:{test_nll:.3f}.")
+    if val_x is not None:
+        min_val_rmse, min_val_nll = val_gp(model, val_x, val_y,
+                    test_batch_size=1024, device=device, tracker=tracker, step=i+previous_epoch, 
+                    min_val_rmse=min_val_rmse, min_val_nll=min_val_nll
+                    )
+    if test_x is not None:
+        _, _, test_rmse, test_nll, _ = eval_gp(model, test_x, test_y,
+            test_batch_size=1024, device=device, tracker=tracker, step=i+previous_epoch)
+        print(f"\nLast testing rmse: {test_rmse:.3e}, nll:{test_nll:.3f}.")
+    
 
+    print("model.lengthscale: ", model.covar_module.lengthscale.item())
+    # save inducing locations
+    if save_u:
+        import pickle as pkl
+        pkl.dump(model.variational_strategy.inducing_points.detach().cpu(), open(f'./u_svgp_{obj_name}.pkl', 'wb'))
+        print(f"Saved u_svgp_{obj_name}")
+        
     if save_model:
         state = {"model": model.state_dict(), "epoch": i}
         torch.save(state, f'{save_path}.model')

@@ -29,7 +29,7 @@ class SVGP_exp(Experiment):
     def init_hypers(self, num_inducing=500, 
         init_method="random", 
         init_expid=None,
-        learn_u=True, 
+        learn_inducing_locations=True, 
         learn_m=True,
         use_ngd=False, ngd_lr=0.1,
         save_model=False,
@@ -38,6 +38,7 @@ class SVGP_exp(Experiment):
         init_covar=True,
         init_mean=True, 
         lm_step=None,
+        load_u=None,
         ):
 
         self.method_args['init_hypers'] = locals()
@@ -46,12 +47,13 @@ class SVGP_exp(Experiment):
         self.method_args['init_hypers']['m'] = m
         del self.method_args['init_hypers']['self']
 
-        self.learn_u = learn_u
+        self.learn_u = learn_inducing_locations
         self.learn_m = learn_m
 
         if init_method.startswith("random"):
             rand_index = random.sample(range(self.train_n), num_inducing)
             u0 = self.train_x[rand_index, :]
+
         elif init_method == "kmeans":
             from sklearn.cluster import KMeans
             xk = self.train_x.cpu().numpy()
@@ -79,9 +81,14 @@ class SVGP_exp(Experiment):
             print(f"Pretraining by {init_method} cost: {time_cost} sec.")
             assert u0.shape[0] == num_inducing and u0.shape[1] == self.dim
         
+        if load_u is not None:
+            u0 = pkl.load(open(f'u_{load_u}_{self.obj_name}.pkl', 'rb'))
+            print(f"Loaded u from {load_u}.")
+
+        print("Init u, ", u0)
         u0 = torch.tensor(u0)
         model = GPModel(inducing_points=u0, 
-                learn_inducing_locations=learn_u,
+                learn_inducing_locations=learn_inducing_locations,
                 use_ngd=use_ngd)
         
         if init_method == "pivchol":
@@ -95,7 +102,7 @@ class SVGP_exp(Experiment):
             )
             print("norm difference between u0 and u0_new: ", torch.norm(u0-u0_new))
             model = GPModel(inducing_points=u0_new, 
-                learn_inducing_locations=learn_u,
+                learn_inducing_locations=learn_inducing_locations,
                 use_ngd=use_ngd)
 
         if init_method not in {"random", "kmeans", "random_init_noise", "pivchol"}:
@@ -140,7 +147,7 @@ class SVGP_exp(Experiment):
         learn_S_only=False,
         separate_group=None, lr2=None, gamma2=None,
         learn_variational_only=False, learn_hyper_only=False,
-        debug=False, verbose=True,
+        debug=False, verbose=True, save_u=False, lengthscale_only=False,
         ):
 
         self.method_args['train'] = locals()
@@ -181,6 +188,8 @@ class SVGP_exp(Experiment):
             learn_variational_only=learn_variational_only,
             learn_hyper_only=learn_hyper_only,
             debug=debug, verbose=verbose,
+            save_u=save_u, obj_name=self.obj_name,
+            lengthscale_only=lengthscale_only,
         )
 
         if self.save_model:

@@ -37,6 +37,8 @@ class DCSVGP_exp(Experiment):
         init_theta_covar=True,
         init_mean=True, 
         lm_step=None,
+        learn_inducing_locations=True,
+        load_u=None,
         ):
 
         self.method_args['init_hypers'] = locals()
@@ -44,7 +46,6 @@ class DCSVGP_exp(Experiment):
         m = num_inducing
         self.method_args['init_hypers']['m'] = m
         del self.method_args['init_hypers']['self']
-
 
         if init_method.startswith("random"):
             rand_index = random.sample(range(self.train_n), num_inducing)
@@ -76,9 +77,14 @@ class DCSVGP_exp(Experiment):
             print(f"Pretraining by {init_method} cost: {time_cost} sec.")
             assert u0.shape[0] == num_inducing and u0.shape[1] == self.dim
         
+        if load_u is not None:
+            u0 = pkl.load(open(f'u_{load_u}_{self.obj_name}.pkl', 'rb'))
+            print(f"Loaded u from {load_u}.")
+        
+        print("Init u, ", u0)
         u0 = torch.tensor(u0)
         model = GPModel(inducing_points=u0, 
-                learn_inducing_locations=True,
+                learn_inducing_locations=learn_inducing_locations,
                 )
         
         if init_method == "pivchol":
@@ -139,6 +145,8 @@ class DCSVGP_exp(Experiment):
         load_run=None,
         lr2=None, gamma2=None,
         debug=False, verbose=True,
+        save_u=False,lengthscale_only=False,
+        alpha=-1,
         ):
 
         self.method_args['train'] = locals()
@@ -165,8 +173,14 @@ class DCSVGP_exp(Experiment):
             mll_type=mll_type,
             device=self.device,
             tracker=self.tracker,
+            save_model=self.save_model,
+            save_path=self.save_path + f'_{wandb.run.name}',
+            load_run_path=load_run_path,
             test_x=self.test_x, test_y=self.test_y,
             val_x=self.val_x, val_y=self.val_y,
+            save_u=save_u, obj_name=self.obj_name,
+            lengthscale_only=lengthscale_only,
+            alpha=alpha,
         )
 
         if self.save_model:
