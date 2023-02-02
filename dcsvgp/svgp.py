@@ -5,7 +5,7 @@ import torch
 import gpytorch
 from gpytorch.models import ApproximateGP
 from gpytorch.variational import CholeskyVariationalDistribution, NaturalVariationalDistribution
-from gpytorch.variational import VariationalStrategy
+from gpytorch.variational import UnwhitenedVariationalStrategy
 from torch.utils.data import TensorDataset, DataLoader
 
 class GPModel(ApproximateGP):
@@ -19,7 +19,7 @@ class GPModel(ApproximateGP):
         else:
             variational_distribution = CholeskyVariationalDistribution(inducing_points.size(0))
 
-        variational_strategy = VariationalStrategy(self, inducing_points, 
+        variational_strategy = UnwhitenedVariationalStrategy(self, inducing_points, 
                                                    variational_distribution, 
                                                    learn_inducing_locations=learn_inducing_locations)
         super(GPModel, self).__init__(variational_strategy)

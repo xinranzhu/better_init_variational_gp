@@ -5,7 +5,7 @@ import torch
 import gpytorch
 from gpytorch.models import ApproximateGP
 from gpytorch.variational import CholeskyVariationalDistribution, NaturalVariationalDistribution
-from gpytorch.variational import VariationalStrategyDecoupledConditionals
+from gpytorch.variational import UnwhitenedVariationalStrategyDecoupledConditionals
 from torch.utils.data import TensorDataset, DataLoader
 
 class GPModel(ApproximateGP):
@@ -16,7 +16,7 @@ class GPModel(ApproximateGP):
         variational_distribution = CholeskyVariationalDistribution(inducing_points.size(0))
 
         covar_module_mean = gpytorch.kernels.RBFKernel()
-        variational_strategy = VariationalStrategyDecoupledConditionals(self, inducing_points, 
+        variational_strategy = UnwhitenedVariationalStrategyDecoupledConditionals(self, inducing_points, 
                                                    variational_distribution, covar_module_mean,
                                                    learn_inducing_locations=learn_inducing_locations)
         super(GPModel, self).__init__(variational_strategy)
@@ -108,6 +108,12 @@ def train_gp(model, train_x, train_y,
             loss.backward()
             optimizer.step()
             scheduler.step()
+            # print("u.grad, ", model.variational_strategy.inducing_points.grad.abs().mean().item())
+            # print("var_mean.grad, ", model.variational_strategy._variational_distribution.variational_mean.grad.abs().mean().item())
+            # print("var_ovar.grad, ", model.variational_strategy._variational_distribution.chol_variational_covar.grad.abs().mean().item())
+            # print("raw covar_ls.grad, ", model.covar_module.raw_lengthscale.grad.item())
+            # # print("raw mean_ls.grad, ", model.variational_strategy.covar_module_mean.raw_lengthscale.grad.item())
+            # print("raw_noise.grad, ", model.likelihood.raw_noise.grad.item())
         means = output.mean.cpu()
         stds  = output.variance.sqrt().cpu()
         rmse = torch.mean((means - y_batch.cpu())**2).sqrt()

@@ -135,7 +135,7 @@ class SVGP_exp(Experiment):
         self.use_ngd = use_ngd
         self.ngd_lr = ngd_lr
         self.save_model = save_model
-        self.save_path = f"./saved_models/{self.obj_name}-{self.dim}_{self.method_args['init']['model']}_m{m}_{init_method}"
+        self.save_path = f"./saved_models/unwhitened_{self.obj_name}_{self.method_args['init']['model']}_m{m}"
 
         return self
 
@@ -154,7 +154,7 @@ class SVGP_exp(Experiment):
         del self.method_args['train']['self']
         self.track_run()
 
-        load_run_path = self.save_path + "_" + load_run + ".model" if load_run is not None else None
+        load_run_path = self.save_path + "_" + mll_type + "_" + load_run + ".model" if load_run is not None else None
         print("Loading previous run: ", load_run)
 
         means, variances, rmse, test_nll, testing_time = eval_gp(
@@ -179,7 +179,7 @@ class SVGP_exp(Experiment):
             tracker=self.tracker,
             use_ngd=self.use_ngd, ngd_lr=self.ngd_lr,
             save_model=self.save_model,
-            save_path=self.save_path + f'_{wandb.run.name}',
+            save_path=self.save_path + f'_{mll_type}_{wandb.run.name}',
             test_x=self.test_x, test_y=self.test_y,
             val_x=self.val_x, val_y=self.val_y,
             load_run_path=load_run_path,
@@ -193,7 +193,7 @@ class SVGP_exp(Experiment):
         )
 
         if self.save_model:
-            save_path = self.save_path + f'_{wandb.run.name}'
+            save_path = self.save_path + "_" + mll_type + f'_{mll_type}_{wandb.run.name}'
             state = {"model": self.model.state_dict(), "epoch": num_epochs}
             torch.save(state, f'{save_path}.model')
             print("Finish training, model saved to ", save_path)
