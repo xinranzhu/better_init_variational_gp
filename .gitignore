@@ -15,3 +15,4 @@ uci
 *.pdf
 *.yml
 *.model
+*.tar
