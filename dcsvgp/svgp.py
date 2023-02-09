@@ -240,6 +240,7 @@ def train_gp(model, train_x, train_y,
                 "loss": loss.item(), 
                 "training_rmse": rmse,
                 "training_nll": nll,    
+                "ls": model.covar_module.lengthscale.item(),
             }, step=i+previous_epoch)
         if i % 10 == 0:
             print(f"loss: {loss.item()}, lengthscale: {model.covar_module.lengthscale.item()}")
