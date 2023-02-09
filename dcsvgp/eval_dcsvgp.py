@@ -39,6 +39,7 @@ class DCSVGP_exp(Experiment):
         lm_step=None,
         learn_inducing_locations=True,
         load_u=None,
+        ID=None,
         ):
 
         self.method_args['init_hypers'] = locals()
@@ -134,7 +135,7 @@ class DCSVGP_exp(Experiment):
         self.use_ngd = use_ngd
         self.ngd_lr = ngd_lr
         self.save_model = save_model
-        self.save_path = f"./saved_models/{self.obj_name}-{self.dim}_{self.method_args['init']['model']}_m{m}_{init_method}"
+        self.save_path = f"./saved_models/whitened_{self.obj_name}_{self.method_args['init']['model']}_m{m}_ID_{ID}"
 
         return self
 
@@ -153,7 +154,7 @@ class DCSVGP_exp(Experiment):
         del self.method_args['train']['self']
         self.track_run()
 
-        load_run_path = self.save_path + "_" + load_run + ".model" if load_run is not None else None
+        load_run_path = self.save_path + "_" + mll_type + f"_alpha_{alpha_type}" + "_" + load_run + ".model" if load_run is not None else None
         print("Loading previous run: ", load_run)
 
         means, variances, rmse, test_nll, testing_time = eval_gp(
@@ -163,6 +164,13 @@ class DCSVGP_exp(Experiment):
             tracker=None)
         print(f"initial test rmse: {rmse:.4e}, test nll: {test_nll:.4e}")
         
+        if alpha == -1:
+            alpha_type = "None" 
+        elif alpha == 0.1:
+            alpha_type = "01"
+        elif alpha == "varying":
+            alpha_type = "varying"
+
         self.model = train_gp(
             self.model, 
             self.train_x, self.train_y, 
@@ -174,7 +182,7 @@ class DCSVGP_exp(Experiment):
             device=self.device,
             tracker=self.tracker,
             save_model=self.save_model,
-            save_path=self.save_path + f'_{wandb.run.name}',
+            save_path=self.save_path + f'_{mll_type}_alpha_{alpha_type}_{wandb.run.name}',
             load_run_path=load_run_path,
             test_x=self.test_x, test_y=self.test_y,
             val_x=self.val_x, val_y=self.val_y,
@@ -184,7 +192,7 @@ class DCSVGP_exp(Experiment):
         )
 
         if self.save_model:
-            save_path = self.save_path + f'_{wandb.run.name}'
+            save_path = self.save_path + f'_{mll_type}_alpha_{alpha_type}_{wandb.run.name}'
             state = {"model": self.model.state_dict(), "epoch": num_epochs}
             torch.save(state, f'{save_path}.model')
             print("Finish training, model saved to ", save_path)

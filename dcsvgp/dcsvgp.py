@@ -87,10 +87,16 @@ def train_gp(model, train_x, train_y,
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones, gamma=gamma)
        
 
-    if mll_type == "ELBO":
-        mll = gpytorch.mlls.VariationalELBO(model.likelihood, model, num_data=train_y.size(0), beta=elbo_beta, alpha=alpha)
-    elif mll_type == "PLL":
-        mll = gpytorch.mlls.PredictiveLogLikelihood(model.likelihood, model, num_data=train_y.size(0), beta=elbo_beta, alpha=alpha)
+    if alpha == "varying":
+        if mll_type == "ELBO":
+            mll = gpytorch.mlls.VariationalELBO(model.likelihood, model, num_data=train_y.size(0), beta=elbo_beta, alpha=0.)
+        elif mll_type == "PLL":
+            mll = gpytorch.mlls.PredictiveLogLikelihood(model.likelihood, model, num_data=train_y.size(0), beta=elbo_beta, alpha=0.)
+    else:
+        if mll_type == "ELBO":
+            mll = gpytorch.mlls.VariationalELBO(model.likelihood, model, num_data=train_y.size(0), beta=elbo_beta, alpha=alpha)
+        elif mll_type == "PLL":
+            mll = gpytorch.mlls.PredictiveLogLikelihood(model.likelihood, model, num_data=train_y.size(0), beta=elbo_beta, alpha=alpha)
 
     min_val_rmse = float("Inf")
     min_val_nll = float("Inf")
@@ -112,11 +118,20 @@ def train_gp(model, train_x, train_y,
         stds  = output.variance.sqrt().cpu()
         rmse = torch.mean((means - y_batch.cpu())**2).sqrt()
         nll   = -torch.distributions.Normal(means, stds).log_prob(y_batch.cpu()).mean()
+
+        if alpha == "varying":
+            if mll_type == "ELBO":
+                mll = gpytorch.mlls.VariationalELBO(model.likelihood, model, num_data=train_y.size(0), beta=elbo_beta, alpha=(i+previous_epoch)/(num_epochs-previous_epoch))
+            elif mll_type == "PLL":
+                mll = gpytorch.mlls.PredictiveLogLikelihood(model.likelihood, model, num_data=train_y.size(0), beta=elbo_beta, alpha=(i+previous_epoch)/(num_epochs-previous_epoch))
+
         if tracker is not None:
             tracker.log({
                 "loss": loss.item(), 
                 "training_rmse": rmse,
-                "training_nll": nll,    
+                "training_nll": nll,  
+                "ls_mean":  model.variational_strategy.covar_module_mean.lengthscale.item(),
+                "ls": model.covar_module.lengthscale.item(),
             }, step=i+previous_epoch)
         if i % 10 == 0:
             print(f"loss: {loss.item():.3f}, lengthscale_mean: {model.variational_strategy.covar_module_mean.lengthscale.item():.3f}, lengthscale_covar: {model.covar_module.lengthscale.item():.3f}")
