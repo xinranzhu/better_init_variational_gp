@@ -2,9 +2,6 @@ import numpy as np
 import torch
 import sys
 sys.path.append("../src")
-# sys.path.append("./synthetic_utils")
-# from load_data_synthetic import load_synthetic_data
-# from synthetic_functions import *
 from utils import load_data, load_data_old
 
 try:
@@ -54,12 +51,7 @@ class Experiment(object):
             self.test_n = self.test_x.shape[0]
             self.val_n = 0
         else:
-            # load training and testing data
-            data_loader = 0 if obj_name in {"bike2", "energy", "protein2"} else 1
-            if data_loader:
-                self.train_x, self.train_y, self.val_x, self.val_y, self.test_x, self.test_y = load_data(dataset=obj_name, seed=seed)
-            else:
-                self.train_x, self.train_y, self.val_x, self.val_y, self.test_x, self.test_y = load_data_old(obj_name, dim, seed=seed)
+            self.train_x, self.train_y, self.val_x, self.val_y, self.test_x, self.test_y = load_data(dataset=obj_name, seed=seed)
             self.train_n = self.train_x.shape[0]
             self.test_n = self.test_x.shape[0]
             self.val_n = self.val_x.shape[0]
