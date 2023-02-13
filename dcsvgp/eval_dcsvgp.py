@@ -7,7 +7,6 @@ import torch
 import gpytorch
 import pickle as pkl
 from dcsvgp import GPModel, train_gp, eval_gp
-from pivoted import _select_inducing_points
 from eval_experiment import Experiment
 
 
@@ -27,16 +26,8 @@ class DCSVGP_exp(Experiment):
         super().__init__(**kwargs, model="DCSVGP")
         
     def init_hypers(self, num_inducing=500, 
-        init_method="random", 
-        init_expid=None,
         use_ngd=False, ngd_lr=0.1,
         save_model=False,
-        init_theta=True,
-        init_noise=True,
-        init_covar=True,
-        init_theta_covar=True,
-        init_mean=True, 
-        lm_step=None,
         learn_inducing_locations=True,
         load_u=None,
         ID=None,
@@ -47,89 +38,18 @@ class DCSVGP_exp(Experiment):
         m = num_inducing
         self.method_args['init_hypers']['m'] = m
         del self.method_args['init_hypers']['self']
-
-        if init_method.startswith("random"):
-            rand_index = random.sample(range(self.train_n), num_inducing)
-            u0 = self.train_x[rand_index, :]
-        elif init_method == "kmeans":
-            from sklearn.cluster import KMeans
-            xk = self.train_x.cpu().numpy()
-            kmeans = KMeans(n_clusters=num_inducing, random_state=0).fit(xk)
-            u0 = kmeans.cluster_centers_
-        else: # method = "fwd", "lm" or "tr_newton"
-            if init_method == "lm_init":
-                res = pkl.load(open(f"../results/{self.obj_name}-{self.dim}_kmeans_m{m}_{init_expid}_{self.seed}.pkl", "rb"))
-            else:
-                if lm_step is None:
-                    res = pkl.load(open(f"../results/{self.obj_name}-{self.dim}_{init_method}_m{m}_{init_expid}_{self.seed}.pkl", "rb"))
-                else:
-                    res = pkl.load(open(f"../results/{self.obj_name}-{self.dim}_{init_method}_m{m}_{init_expid}_{self.seed}_step{lm_step}.pkl", "rb"))
-            u0 = res["u"].to(device=self.device)
-            c = res["c"]
-            sigma = res["sigma"]
-            theta = res["theta"]
-            time_cost = res["time"]
-            if init_covar:
-                Sbar = res["Sbar"]
-                try:
-                    Lbar = torch.linalg.cholesky(Sbar)
-                except: # failed to initialize variational covariance
-                    init_covar=False 
-            print(f"Pretraining by {init_method} cost: {time_cost} sec.")
-            assert u0.shape[0] == num_inducing and u0.shape[1] == self.dim
         
+        rand_index = random.sample(range(self.train_n), num_inducing)
+        u0 = self.train_x[rand_index, :]
+
         if load_u is not None:
             u0 = pkl.load(open(f'u_{load_u}_{self.obj_name}.pkl', 'rb'))
             print(f"Loaded u from {load_u}.")
         
-        print("Init u, ", u0)
         u0 = torch.tensor(u0)
         model = GPModel(inducing_points=u0, 
                 learn_inducing_locations=learn_inducing_locations,
                 )
-        
-        if init_method == "pivchol":
-            # compute pivoted cholesky initialization for inducing points
-            input_batch_shape = self.train_x.shape[:-2]
-            u0_new = _select_inducing_points(
-                self.train_x,
-                model.covar_module,
-                num_inducing,
-                input_batch_shape,
-            )
-            print("norm difference between u0 and u0_new: ", torch.norm(u0-u0_new))
-            model = GPModel(inducing_points=u0_new, 
-                learn_inducing_locations=True,
-                )
-
-        if init_method not in {"random", "kmeans", "random_init_noise", "pivchol"}:
-            hypers = {}
-            if use_ngd:
-                hypers["variational_strategy._variational_distribution.natural_vec"] = c.to(u0.device)
-            else:
-                if init_theta_covar:
-                    print("initializing theta for covar.")
-                    hypers['covar_module.lengthscale'] =  torch.tensor(theta)
-                if init_theta:
-                    print("initializing theta.")
-                    hypers['covar_module_main.lengthscale'] =  torch.tensor(theta)
-                if init_noise: 
-                    print("initializing noise.")
-                    hypers["likelihood.noise_covar.noise"] = torch.tensor(sigma**2)
-                if init_covar:
-                    print("initializing covar.")
-                    hypers["variational_strategy._variational_distribution.chol_variational_covar"] = Lbar.to(u0.device)
-                    model.variational_strategy.variational_covar_initialized = torch.tensor(1)
-                if init_mean:
-                    print("initializing mean.")
-                    hypers["variational_strategy._variational_distribution.variational_mean"] = c.to(u0.device)
-                    model.variational_strategy.variational_mean_initialized = torch.tensor(1)
-            print("before model.likelihood.noise_covar.noise = ", model.likelihood.noise_covar.noise)
-            model.initialize(**hypers)
-            print("after model.likelihood.noise_covar.noise = ", model.likelihood.noise_covar.noise)
-        if init_method == "random_init_noise":
-            hypers = {'likelihood.noise_covar.noise': torch.tensor(0.1**2)}  
-            model.initialize(**hypers)
 
         self.model = model
         self.use_ngd = use_ngd
@@ -144,8 +64,6 @@ class DCSVGP_exp(Experiment):
         train_batch_size=1024,
         mll_type="PLL", beta=1.0,
         load_run=None,
-        lr2=None, gamma2=None,
-        debug=False, verbose=True,
         save_u=False,lengthscale_only=False,
         alpha=-1,
         ):
@@ -153,6 +71,13 @@ class DCSVGP_exp(Experiment):
         self.method_args['train'] = locals()
         del self.method_args['train']['self']
         self.track_run()
+
+        if alpha == -1:
+            alpha_type = "None" 
+        elif alpha == 0.1:
+            alpha_type = "01"
+        else:
+            alpha_type = alpha
 
         load_run_path = self.save_path + "_" + mll_type + f"_alpha_{alpha_type}" + "_" + load_run + ".model" if load_run is not None else None
         print("Loading previous run: ", load_run)
@@ -164,13 +89,6 @@ class DCSVGP_exp(Experiment):
             tracker=None)
         print(f"initial test rmse: {rmse:.4e}, test nll: {test_nll:.4e}")
         
-        if alpha == -1:
-            alpha_type = "None" 
-        elif alpha == 0.1:
-            alpha_type = "01"
-        elif alpha == "varying":
-            alpha_type = "varying"
-
         self.model = train_gp(
             self.model, 
             self.train_x, self.train_y, 
@@ -196,14 +114,6 @@ class DCSVGP_exp(Experiment):
             state = {"model": self.model.state_dict(), "epoch": num_epochs}
             torch.save(state, f'{save_path}.model')
             print("Finish training, model saved to ", save_path)
-        return self
-
-    def eval(self, step=99999):
-        means, variances, rmse, test_nll, testing_time = eval_gp(
-            self.model,
-            self.test_x, self.test_y, 
-            device=self.device,
-            tracker=self.tracker, step=step)
         return self
 
 if __name__ == "__main__":

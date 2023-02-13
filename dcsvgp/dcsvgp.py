@@ -4,7 +4,7 @@ import time
 import torch
 import gpytorch
 from gpytorch.models import ApproximateGP
-from gpytorch.variational import CholeskyVariationalDistribution, NaturalVariationalDistribution
+from gpytorch.variational import CholeskyVariationalDistribution
 from gpytorch.variational import VariationalStrategyDecoupledConditionals
 from torch.utils.data import TensorDataset, DataLoader
 
@@ -87,7 +87,7 @@ def train_gp(model, train_x, train_y,
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones, gamma=gamma)
        
 
-    if alpha == "varying":
+    if alpha.startswith("varying"):
         if mll_type == "ELBO":
             mll = gpytorch.mlls.VariationalELBO(model.likelihood, model, num_data=train_y.size(0), beta=elbo_beta, alpha=0.)
         elif mll_type == "PLL":
