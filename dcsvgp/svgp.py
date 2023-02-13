@@ -56,23 +56,18 @@ def check_optimizer(optimizer, name=None):
 
 def train_gp(model, train_x, train_y, 
     num_epochs=1000, train_batch_size=1024,
-    learn_inducing_values=True, lr=0.01,
-    scheduler=None, gamma=0.3,
+    lr=0.01,
+    scheduler="multistep", gamma=0.3,
     elbo_beta=1.0,
     mll_type="ELBO",
     device="cpu", tracker=None, 
-    use_ngd=False, ngd_lr=0.1,
     save_model=True, save_path=None,
     test_x=None, test_y=None,
     val_x=None, val_y=None,
     load_run_path=None,
-    separate_group=None, lr2=None, gamma2=None,
-    learn_S_only=False, learn_variational_only=False, learn_hyper_only=False,
     debug=False, verbose=True, save_u=False, obj_name=None,
     lengthscale_only=False, 
     ):
-    gamma2 = gamma if gamma2 is None else gamma2
-    lr2 = lr if lr2 is None else lr2
 
 
     train_dataset = TensorDataset(train_x, train_y)
@@ -96,116 +91,28 @@ def train_gp(model, train_x, train_y,
     if device == "cuda":
         model = model.to(device=torch.device("cuda"))
 
-    if use_ngd:
-        print("using NGD")
-        optimizer1 = gpytorch.optim.NGD(model.variational_parameters(), num_data=train_y.size(0), lr=ngd_lr)
-        optimizer2 = torch.optim.Adam([
-            {'params': model.hyperparameters()},
-        ], lr=lr)
-    else:
-        assert learn_inducing_values
-        print("normal learning")
-        optimizer1 = torch.optim.Adam([
-            {'params': model.hyperparameters()}, # inducing points, mean_const, raw_noise, raw_lengthscale 
-        ], lr=lr)
-        optimizer2 =  torch.optim.Adam([
-            {'params': model.variational_parameters()}, 
-        ], lr=lr)
-
-    if separate_group == "u_m_covar":
-        print("u_m_covar")
-        optimizer1 =  torch.optim.Adam([
-                {'params': model.covar_module.raw_lengthscale}, 
-                {'params': model.mean_module.constant},
-                {'params': model.likelihood.raw_noise},
-            ], lr=lr) 
-        optimizer2 =  torch.optim.Adam([
-                {'params': model.variational_parameters()},
-                {'params': model.variational_strategy.inducing_points},  
-            ], lr=lr2)
-    elif separate_group == "u":
-        print("u")
-        optimizer2 =  torch.optim.Adam([
-                {'params': model.variational_strategy.inducing_points}, 
-            ], lr=lr2)
-        optimizer1 =  torch.optim.Adam([
-                {'params': model.variational_parameters()},
-                {'params': model.covar_module.raw_lengthscale},
-                {'params': model.mean_module.constant}, 
-                {'params': model.likelihood.raw_noise},
-            ], lr=lr)
-    elif separate_group == "u_m":
-        print("u_m")
-        optimizer2 =  torch.optim.Adam([
-                {'params': model.variational_strategy.inducing_points}, 
-                {'params': model.variational_strategy._variational_distribution.variational_mean}, 
-            ], lr=lr2)
-        optimizer1 =  torch.optim.Adam([
-                {'params': model.variational_strategy._variational_distribution.chol_variational_covar},
-                {'params': model.covar_module.raw_lengthscale},
-                {'params': model.mean_module.constant}, 
-                {'params': model.likelihood.raw_noise},
-            ], lr=lr)
-
-    if learn_S_only:
-        print("learn S only")
-        optimizer2 = torch.optim.Adam([
-                    {'params': model.variational_strategy._variational_distribution.chol_variational_covar},
-                ], lr=lr)
-        optimizer1 = None
-    if learn_variational_only:
-        print("learn variational only")
-        optimizer2 =  torch.optim.Adam([
-                {'params': model.variational_parameters()},
-                {'params': model.variational_strategy.inducing_points},  
-            ], lr=lr2)
-        optimizer1 = None
-    if learn_hyper_only:
-        print("learn hyperparameters only")
-        optimizer1 =  torch.optim.Adam([
-                {'params': model.covar_module.raw_lengthscale}, 
-                {'params': model.mean_module.constant},
-                {'params': model.likelihood.raw_noise},
-            ], lr=lr) 
-        optimizer2 = None
+    
+    optimizer = torch.optim.Adam([ 
+        {'params': model.parameters()},   
+    ], lr=lr)
 
     if lengthscale_only:
-        print("learn lengthscale only")
-        optimizer1 =  torch.optim.Adam([
+        optimizer =  torch.optim.Adam([
                 {'params': model.covar_module.raw_lengthscale}, 
             ], lr=lr) 
-        optimizer2 = None
         
 
     # check_optimizer(optimizer1, name="optimizer1")
     # check_optimizer(optimizer2, name="optimizer2")
 
-    if scheduler == "multistep":
-        milestones = [int(num_epochs*len(train_loader)/3), int(2*num_epochs*len(train_loader)/3)]
-        if optimizer1 is not None:
-            scheduler1 = torch.optim.lr_scheduler.MultiStepLR(optimizer1, milestones, gamma=gamma)
-        else:
-            scheduler1 = None
-        if optimizer2 is not None:
-            scheduler2 = torch.optim.lr_scheduler.MultiStepLR(optimizer2, milestones, gamma=gamma2)
-        else:
-            scheduler2 = None
-    elif scheduler == None:
-        lr_sched = lambda epoch: 1.0
-        scheduler1 = torch.optim.lr_scheduler.LambdaLR(optimizer1, lr_lambda=lr_sched)
-        scheduler2 = torch.optim.lr_scheduler.LambdaLR(optimizer2, lr_lambda=lr_sched)
-    elif scheduler == "lambda":
-        lr_sched = lambda epoch: 0.8 ** epoch
-        scheduler1 = torch.optim.lr_scheduler.LambdaLR(optimizer1, lr_lambda=lr_sched)
-        scheduler2 = torch.optim.lr_scheduler.LambdaLR(optimizer2, lr_lambda=lr_sched)
-    
-
+    milestones = [int(num_epochs*len(train_loader)/3), int(2*num_epochs*len(train_loader)/3)]
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones, gamma=gamma)
+     
     if mll_type == "ELBO":
         mll = gpytorch.mlls.VariationalELBO(model.likelihood, model, num_data=train_y.size(0), beta=elbo_beta)
     elif mll_type == "PLL":
         mll = gpytorch.mlls.PredictiveLogLikelihood(model.likelihood, model, num_data=train_y.size(0), beta=elbo_beta)
 
-    start = time.time()
     min_val_rmse = float("Inf")
     min_val_nll = float("Inf")
     model.train()
@@ -216,20 +123,13 @@ def train_gp(model, train_x, train_y,
             if device == "cuda":
                 x_batch = x_batch.cuda()
                 y_batch = y_batch.cuda()
-            if optimizer1 is not None:
-                optimizer1.zero_grad()
-            if optimizer2 is not None:
-                optimizer2.zero_grad()
+            optimizer.zero_grad()
             output = model.likelihood(model(x_batch))
             # output = model(x_batch)
             loss = -mll(output, y_batch)
             loss.backward()
-            if optimizer1 is not None:
-                optimizer1.step()
-                scheduler1.step()
-            if optimizer2 is not None:
-                optimizer2.step()
-                scheduler2.step()
+            optimizer.step()
+            scheduler.step()
 
         means = output.mean.cpu()
         stds  = output.variance.sqrt().cpu()
@@ -272,8 +172,6 @@ def train_gp(model, train_x, train_y,
                 state = {"model": model.state_dict(), "epoch": i}
                 torch.save(state, f'{save_path}.model')
 
-    end = time.time()
-    training_time = end - start
     if val_x is not None:
         min_val_rmse, min_val_nll = val_gp(model, val_x, val_y,
                     test_batch_size=1024, device=device, tracker=tracker, step=i+previous_epoch, 
@@ -296,11 +194,7 @@ def train_gp(model, train_x, train_y,
         state = {"model": model.state_dict(), "epoch": i}
         torch.save(state, f'{save_path}.model')
 
-    if tracker is not None:
-        tracker.log({
-            "training_time":training_time,       
-        })
-    return model, training_time
+    return model
 
 
 def eval_gp(model, test_x, test_y,
