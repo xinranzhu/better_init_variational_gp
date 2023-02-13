@@ -7,7 +7,6 @@ import torch
 import gpytorch
 import pickle as pkl
 from svgp import GPModel, train_gp, eval_gp
-from pivoted import _select_inducing_points
 from eval_experiment import Experiment
 
 
@@ -27,18 +26,11 @@ class SVGP_exp(Experiment):
         super().__init__(**kwargs, model="SVGP")
         
     def init_hypers(self, num_inducing=500, 
-        init_method="random", 
-        init_expid=None,
         learn_inducing_locations=True, 
         learn_m=True,
-        use_ngd=False, ngd_lr=0.1,
         save_model=False,
-        init_theta=True,
-        init_noise=True,
-        init_covar=True,
-        init_mean=True, 
-        lm_step=None,
         load_u=None,
+        ID=None,
         ):
 
         self.method_args['init_hypers'] = locals()
@@ -50,92 +42,20 @@ class SVGP_exp(Experiment):
         self.learn_u = learn_inducing_locations
         self.learn_m = learn_m
 
-        if init_method.startswith("random"):
-            rand_index = random.sample(range(self.train_n), num_inducing)
-            u0 = self.train_x[rand_index, :]
+        rand_index = random.sample(range(self.train_n), num_inducing)
+        u0 = self.train_x[rand_index, :]
 
-        elif init_method == "kmeans":
-            from sklearn.cluster import KMeans
-            xk = self.train_x.cpu().numpy()
-            kmeans = KMeans(n_clusters=num_inducing, random_state=0).fit(xk)
-            u0 = kmeans.cluster_centers_
-        else: # method = "fwd", "lm" or "tr_newton"
-            if init_method == "lm_init":
-                res = pkl.load(open(f"../results/{self.obj_name}-{self.dim}_kmeans_m{m}_{init_expid}_{self.seed}.pkl", "rb"))
-            else:
-                if lm_step is None:
-                    res = pkl.load(open(f"../results/{self.obj_name}-{self.dim}_{init_method}_m{m}_{init_expid}_{self.seed}.pkl", "rb"))
-                else:
-                    res = pkl.load(open(f"../results/{self.obj_name}-{self.dim}_{init_method}_m{m}_{init_expid}_{self.seed}_step{lm_step}.pkl", "rb"))
-            u0 = res["u"].to(device=self.device)
-            c = res["c"]
-            sigma = res["sigma"]
-            theta = res["theta"]
-            time_cost = res["time"]
-            if init_covar:
-                Sbar = res["Sbar"]
-                try:
-                    Lbar = torch.linalg.cholesky(Sbar)
-                except: # failed to initialize variational covariance
-                    init_covar=False 
-            print(f"Pretraining by {init_method} cost: {time_cost} sec.")
-            assert u0.shape[0] == num_inducing and u0.shape[1] == self.dim
-        
         if load_u is not None:
             u0 = pkl.load(open(f'u_{load_u}_{self.obj_name}.pkl', 'rb'))
             print(f"Loaded u from {load_u}.")
 
-        print("Init u, ", u0)
         u0 = torch.tensor(u0)
         model = GPModel(inducing_points=u0, 
-                learn_inducing_locations=learn_inducing_locations,
-                use_ngd=use_ngd)
+                learn_inducing_locations=learn_inducing_locations)
         
-        if init_method == "pivchol":
-            # compute pivoted cholesky initialization for inducing points
-            input_batch_shape = self.train_x.shape[:-2]
-            u0_new = _select_inducing_points(
-                self.train_x,
-                model.covar_module,
-                num_inducing,
-                input_batch_shape,
-            )
-            print("norm difference between u0 and u0_new: ", torch.norm(u0-u0_new))
-            model = GPModel(inducing_points=u0_new, 
-                learn_inducing_locations=learn_inducing_locations,
-                use_ngd=use_ngd)
-
-        if init_method not in {"random", "kmeans", "random_init_noise", "pivchol"}:
-            hypers = {}
-            if use_ngd:
-                hypers["variational_strategy._variational_distribution.natural_vec"] = c.to(u0.device)
-            else:
-                if init_theta:
-                    print("initializing theta.")
-                    hypers['covar_module.lengthscale'] =  torch.tensor(theta)
-                if init_noise: 
-                    print("initializing noise.")
-                    hypers["likelihood.noise_covar.noise"] = torch.tensor(sigma**2)
-                if init_covar:
-                    print("initializing covar.")
-                    hypers["variational_strategy._variational_distribution.chol_variational_covar"] = Lbar.to(u0.device)
-                    model.variational_strategy.variational_covar_initialized = torch.tensor(1)
-                if init_mean:
-                    print("initializing mean.")
-                    hypers["variational_strategy._variational_distribution.variational_mean"] = c.to(u0.device)
-                    model.variational_strategy.variational_mean_initialized = torch.tensor(1)
-            print("before model.likelihood.noise_covar.noise = ", model.likelihood.noise_covar.noise)
-            model.initialize(**hypers)
-            print("after model.likelihood.noise_covar.noise = ", model.likelihood.noise_covar.noise)
-        if init_method == "random_init_noise":
-            hypers = {'likelihood.noise_covar.noise': torch.tensor(0.1**2)}  
-            model.initialize(**hypers)
-
         self.model = model
-        self.use_ngd = use_ngd
-        self.ngd_lr = ngd_lr
         self.save_model = save_model
-        self.save_path = f"./saved_models/whitened_{self.obj_name}_{self.method_args['init']['model']}_m{m}"
+        self.save_path = f"./saved_models/whitened_{self.obj_name}_{self.method_args['init']['model']}_m{m}_ID_{ID}"
 
         return self
 
@@ -164,12 +84,11 @@ class SVGP_exp(Experiment):
             tracker=None)
         print(f"initial test rmse: {rmse:.4e}, test nll: {test_nll:.4e}")
         
-        self.model, _, = train_gp(
+        self.model = train_gp(
             self.model, 
             self.train_x, self.train_y, 
             num_epochs=num_epochs, 
             train_batch_size=train_batch_size,
-            learn_inducing_values=self.learn_m,
             lr=lr,
             scheduler=scheduler, 
             gamma=gamma,
@@ -177,16 +96,11 @@ class SVGP_exp(Experiment):
             mll_type=mll_type,
             device=self.device,
             tracker=self.tracker,
-            use_ngd=self.use_ngd, ngd_lr=self.ngd_lr,
             save_model=self.save_model,
             save_path=self.save_path + f'_{mll_type}_alpha_None_{wandb.run.name}',
             test_x=self.test_x, test_y=self.test_y,
             val_x=self.val_x, val_y=self.val_y,
             load_run_path=load_run_path,
-            learn_S_only=learn_S_only,
-            separate_group=separate_group, lr2=lr2, gamma2=gamma2,
-            learn_variational_only=learn_variational_only,
-            learn_hyper_only=learn_hyper_only,
             debug=debug, verbose=verbose,
             save_u=save_u, obj_name=self.obj_name,
             lengthscale_only=lengthscale_only,
@@ -199,13 +113,6 @@ class SVGP_exp(Experiment):
             print("Finish training, model saved to ", save_path)
         return self
 
-    def eval(self, step=99999):
-        means, variances, rmse, test_nll, testing_time = eval_gp(
-            self.model,
-            self.test_x, self.test_y, 
-            device=self.device,
-            tracker=self.tracker, step=step)
-        return self
 
 if __name__ == "__main__":
     fire.Fire(SVGP_exp)
