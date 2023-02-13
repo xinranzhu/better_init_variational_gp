@@ -24,7 +24,7 @@ class Experiment(object):
                 wandb_project_name='better_init_variational_GP2', 
                 wandb_entity="xinranzhu", 
                 use_gpu=True, wandb=True, seed=1234,
-                gradients=False,
+                gradients=False
                 ):
 
         torch.set_default_dtype(torch.double)

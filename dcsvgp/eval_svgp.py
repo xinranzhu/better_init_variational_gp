@@ -39,6 +39,7 @@ class SVGP_exp(Experiment):
         init_mean=True, 
         lm_step=None,
         load_u=None,
+        ID=None,
         ):
 
         self.method_args['init_hypers'] = locals()

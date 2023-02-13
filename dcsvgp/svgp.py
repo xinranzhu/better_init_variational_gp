@@ -212,6 +212,13 @@ def train_gp(model, train_x, train_y,
 
 
     for i in range(num_epochs-previous_epoch):
+        # mean over a batch
+        var_k_mean = 0.
+        var_q_mean = 0. 
+        train_var_mean = 0.
+        train_var_denoise_mean = 0.
+        y_batch_mean = 0.
+        pred_mean_mean = 0.
         for k, (x_batch, y_batch) in enumerate(train_loader):
             if device == "cuda":
                 x_batch = x_batch.cuda()
@@ -231,7 +238,12 @@ def train_gp(model, train_x, train_y,
             if optimizer2 is not None:
                 optimizer2.step()
                 scheduler2.step()
-
+            var_k_mean += var_k.mean()/len(train_loader)
+            var_q_mean += var_q.mean()/len(train_loader)
+            train_var_mean += output.variance.cpu().mean()/len(train_loader)
+            train_var_denoise_mean += res.variance.cpu().mean()/len(train_loader)
+            y_batch_mean += y_batch.mean()/len(train_loader)
+            pred_mean_mean += output.mean.cpu().mean()/len(train_loader)
         means = output.mean.cpu()
         stds  = output.variance.sqrt().cpu()
         rmse = torch.mean((means - y_batch.cpu())**2).sqrt()
@@ -243,14 +255,14 @@ def train_gp(model, train_x, train_y,
                 "training_rmse": rmse,
                 "training_nll": nll,  
                 "noise": model.likelihood.noise.item(),
-                "train_var": output.variance.cpu()[idx],
-                "var_k": var_k[idx],
-                "var_q": var_q[idx],  
-                "pred_mean": output.mean.cpu()[idx],
-                "true_y": y_batch[idx],
+                "train_var": train_var_mean,
+                "var_k": var_k_mean,
+                "var_q": var_q_mean,
+                "pred_mean": pred_mean_mean,
+                "true_y": y_batch_mean,
                 "ls": model.covar_module.lengthscale.item(),
-                "train_var_denoise": res.variance.cpu()[idx],
-                "train_var_comp": var_k[idx] + var_q[idx], 
+                "train_var_denoise": train_var_denoise_mean,
+                "train_var_comp": var_k_mean + var_q_mean,  
                 "S_mean": S.mean(),
             }, step=i+previous_epoch)
         if i % 10 == 0:

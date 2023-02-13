@@ -98,6 +98,13 @@ def train_gp(model, train_x, train_y,
 
 
     for i in range(num_epochs-previous_epoch):
+        # mean over a batch
+        var_k_mean = 0.
+        var_q_mean = 0. 
+        train_var_mean = 0.
+        train_var_denoise_mean = 0.
+        y_batch_mean = 0.
+        pred_mean_mean = 0.
         for k, (x_batch, y_batch) in enumerate(train_loader):
             if device == "cuda":
                 x_batch = x_batch.cuda()
@@ -109,6 +116,12 @@ def train_gp(model, train_x, train_y,
             loss.backward()
             optimizer.step()
             scheduler.step()
+            var_k_mean += var_k.mean()/len(train_loader)
+            var_q_mean += var_q.mean()/len(train_loader)
+            train_var_mean += output.variance.cpu().mean()/len(train_loader)
+            train_var_denoise_mean += res.variance.cpu().mean()/len(train_loader)
+            y_batch_mean += y_batch.mean()/len(train_loader)
+            pred_mean_mean += output.mean.cpu().mean()/len(train_loader)
         means = output.mean.cpu()
         stds  = output.variance.sqrt().cpu()
         rmse = torch.mean((means - y_batch.cpu())**2).sqrt()
@@ -120,24 +133,24 @@ def train_gp(model, train_x, train_y,
                 "training_rmse": rmse,
                 "training_nll": nll,   
                 "noise": model.likelihood.noise.item(),
-                "train_var": output.variance.cpu()[idx],
-                "var_k": var_k[idx],
-                "var_q": var_q[idx],
-                "pred_mean": output.mean.cpu()[idx],
-                "true_y": y_batch[idx],
+                "train_var": train_var_mean,
+                "var_k": var_k_mean,
+                "var_q": var_q_mean,
+                "pred_mean": pred_mean_mean,
+                "true_y": y_batch_mean,
                 "ls_mean":  model.variational_strategy.covar_module_mean.lengthscale.item(),
                 "ls": model.covar_module.lengthscale.item(),
-                "train_var_denoise": res.variance.cpu()[idx],
-                "train_var_comp": var_k[idx] + var_q[idx], 
+                "train_var_denoise": train_var_denoise_mean,
+                "train_var_comp": var_k_mean + var_q_mean, 
                 "S_mean": S.mean(),
             }, step=i+previous_epoch)
         if i % 30 == 0:
             print(f"loss: {loss.item():.3f}, noise: {model.likelihood.noise.item():.2e}, ls_mean: {model.variational_strategy.covar_module_mean.lengthscale.item():.3f}, ls_covar: {model.covar_module.lengthscale.item():.3f}")
-            print(f"train_rmse: {rmse:.2e}, train_nll: {nll:.2e}.")
-            print(f"train_var: {output.variance.cpu()}")
-            print(f"var_k: {var_k}")
-            print(f"var_q: {var_q}")
-            print(f"S: mean {S.mean():.2e} median {S.median():.2e} min {S.min():.2e} max {S.max():.2e}.")
+            # print(f"train_rmse: {rmse:.2e}, train_nll: {nll:.2e}.")
+            # print(f"train_var: {output.variance.cpu()}")
+            # print(f"var_k: {var_k}")
+            # print(f"var_q: {var_q}")
+            # print(f"S: mean {S.mean():.2e} median {S.median():.2e} min {S.min():.2e} max {S.max():.2e}.")
             if val_x is not None:
                 min_val_rmse, min_val_nll = val_gp(model, val_x, val_y,
                     test_batch_size=1024, device=device, tracker=tracker, step=i+previous_epoch, 
@@ -190,8 +203,6 @@ def eval_gp(model, test_x, test_y,
     model.eval()
     means = torch.tensor([0.])
     variances = torch.tensor([0.])
-    var_ks = torch.tensor([0.])
-    var_qs = torch.tensor([0.])
     start = time.time()
     with torch.no_grad():
         for x_batch, y_batch in test_loader:
@@ -206,8 +217,6 @@ def eval_gp(model, test_x, test_y,
             else:
                 means = torch.cat([means, preds.mean])
                 variances = torch.cat([variances, preds.variance])
-            var_ks = torch.cat([var_ks, var_k])
-            var_qs = torch.cat([var_qs, var_q])
     end = time.time()
     testing_time = end - start
 
