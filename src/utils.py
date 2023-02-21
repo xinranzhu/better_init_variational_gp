@@ -72,6 +72,25 @@ def store(obj_name, method_name, npoints, c, u, theta, phi, sigma,
     pkl.dump(res, open(path, 'wb'))
     print(f"test_nll: {nll:.3e}, res saved to {path}.")
 
+def func_1d(x, t=1):
+    return np.exp(-(x+1)**t) * np.sin(2*np.pi*x)
+
+def load_data_1d(train_n=100, test_n=1000, num_inducing=20, sigma_y=0.1):
+    # changing lengthscale 
+    t=1
+    train_x = np.linspace(-2, 4, train_n).reshape(-1, 1)
+    train_y = func_1d(train_x, t=t).squeeze()
+#     noise = sigma_y * np.random.normal(size=(train_n)) * (1+hsd_noise(train_n))
+    noise = sigma_y * np.random.normal(size=(train_n)) # uniform noise
+    train_y = train_y + noise
+    test_x = np.linspace(-2, 4, test_n).reshape(-1, 1)
+    test_y = func_1d(test_x, t=t).squeeze()
+    train_x = torch.tensor(train_x).double()
+    train_y = torch.tensor(train_y).double()
+    test_x = torch.tensor(test_x).double()
+    test_y = torch.tensor(test_y).double()
+    return train_x, train_y, test_x, test_y 
+
 def load_data(data_dir='../uci/', dataset="3droad", seed=0):
     torch.manual_seed(seed) 
 
