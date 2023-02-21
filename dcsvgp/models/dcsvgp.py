@@ -5,17 +5,22 @@ import torch
 import gpytorch
 from gpytorch.models import ApproximateGP
 from gpytorch.variational import CholeskyVariationalDistribution
-from gpytorch.variational import VariationalStrategyDecoupledConditionals
+from .variational_strategy_decoupled_conditionals import VariationalStrategyDecoupledConditionals
 from torch.utils.data import TensorDataset, DataLoader
 
 class GPModel(ApproximateGP):
     def __init__(self, inducing_points, kernel_type='se', 
-        learn_inducing_locations=True, 
+        learn_inducing_locations=True, ard_num_dims=None,
         ):
         
         variational_distribution = CholeskyVariationalDistribution(inducing_points.size(0))
 
-        covar_module_mean = gpytorch.kernels.RBFKernel()
+        if kernel_type == 'se':
+            covar_module_mean = gpytorch.kernels.RBFKernel(ard_num_dims=ard_num_dims)
+            # covar_module_mean = gpytorch.kernels.ScaleKernel(gpytorch.kernels.RBFKernel(ard_num_dims=ard_num_dims))
+        elif kernel_type == 'matern1/2':
+            covar_module_mean = gpytorch.kernels.MaternKernel(nu=0.5,ard_num_dims=ard_num_dims)
+
         variational_strategy = VariationalStrategyDecoupledConditionals(self, inducing_points, 
                                                    variational_distribution, covar_module_mean,
                                                    learn_inducing_locations=learn_inducing_locations)
@@ -24,13 +29,14 @@ class GPModel(ApproximateGP):
         self.mean_module = gpytorch.means.ConstantMean()
         self.likelihood = gpytorch.likelihoods.GaussianLikelihood()
         if kernel_type == 'se':
-            self.covar_module = gpytorch.kernels.RBFKernel()
+            self.covar_module = gpytorch.kernels.RBFKernel(ard_num_dims=ard_num_dims)
+            # self.covar_module = gpytorch.kernels.ScaleKernel(gpytorch.kernels.RBFKernel(ard_num_dims=ard_num_dims))
         elif kernel_type == 'matern1/2':
-            self.covar_module = gpytorch.kernels.MaternKernel(nu=0.5)
+            self.covar_module = gpytorch.kernels.MaternKernel(nu=0.5,ard_num_dims=ard_num_dims)
         elif kernel_type == 'matern3/2':
-            self.covar_module = gpytorch.kernels.MaternKernel(nu=1.5)
+            self.covar_module = gpytorch.kernels.MaternKernel(nu=1.5,ard_num_dims=ard_num_dims)
         elif kernel_type == 'matern5/2':
-            self.covar_module = gpytorch.kernels.MaternKernel(nu=2.5)
+            self.covar_module = gpytorch.kernels.MaternKernel(nu=2.5,ard_num_dims=ard_num_dims)
          
     def forward(self, x):
         mean_x = self.mean_module(x)
@@ -49,8 +55,8 @@ def train_gp(model, train_x, train_y,
     load_run_path=None,
     save_u=False,obj_name=None,
     lengthscale_only=False,
-    verbose=False,
-    alpha=-1,
+    verbose=True,
+    alpha=None,
     ):
 
     train_dataset = TensorDataset(train_x, train_y)
@@ -86,18 +92,22 @@ def train_gp(model, train_x, train_y,
     milestones = [int(num_epochs*len(train_loader)/3), int(2*num_epochs*len(train_loader)/3)]
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones, gamma=gamma)
        
-
-    if alpha == "varying":
+    if type(alpha) == str and alpha.startswith("varying"):
         if mll_type == "ELBO":
             mll = gpytorch.mlls.VariationalELBO(model.likelihood, model, num_data=train_y.size(0), beta=elbo_beta, alpha=0.)
         elif mll_type == "PLL":
             mll = gpytorch.mlls.PredictiveLogLikelihood(model.likelihood, model, num_data=train_y.size(0), beta=elbo_beta, alpha=0.)
+    elif alpha is None:
+        if mll_type == "ELBO":
+            mll = gpytorch.mlls.VariationalELBO(model.likelihood, model, num_data=train_y.size(0), beta=elbo_beta)
+        elif mll_type == "PLL":
+            mll = gpytorch.mlls.PredictiveLogLikelihood(model.likelihood, model, num_data=train_y.size(0), beta=elbo_beta)
     else:
         if mll_type == "ELBO":
             mll = gpytorch.mlls.VariationalELBO(model.likelihood, model, num_data=train_y.size(0), beta=elbo_beta, alpha=alpha)
         elif mll_type == "PLL":
             mll = gpytorch.mlls.PredictiveLogLikelihood(model.likelihood, model, num_data=train_y.size(0), beta=elbo_beta, alpha=alpha)
-
+    
     min_val_rmse = float("Inf")
     min_val_nll = float("Inf")
     model.train()
@@ -119,34 +129,42 @@ def train_gp(model, train_x, train_y,
         rmse = torch.mean((means - y_batch.cpu())**2).sqrt()
         nll   = -torch.distributions.Normal(means, stds).log_prob(y_batch.cpu()).mean()
 
-        if alpha == "varying":
+        if type(alpha)==str and alpha.startswith("varying"):
+            info = alpha.split('-')
+            scale = 1 if len(info) == 1 else float(info[1])
             if mll_type == "ELBO":
-                mll = gpytorch.mlls.VariationalELBO(model.likelihood, model, num_data=train_y.size(0), beta=elbo_beta, alpha=(i+previous_epoch)/(num_epochs-previous_epoch))
+                mll = gpytorch.mlls.VariationalELBO(model.likelihood, model, num_data=train_y.size(0), beta=elbo_beta, alpha=scale*(i+previous_epoch)/(num_epochs-previous_epoch))
             elif mll_type == "PLL":
-                mll = gpytorch.mlls.PredictiveLogLikelihood(model.likelihood, model, num_data=train_y.size(0), beta=elbo_beta, alpha=(i+previous_epoch)/(num_epochs-previous_epoch))
+                mll = gpytorch.mlls.PredictiveLogLikelihood(model.likelihood, model, num_data=train_y.size(0), beta=elbo_beta, alpha=scale*(i+previous_epoch)/(num_epochs-previous_epoch))
 
         if tracker is not None:
             tracker.log({
                 "loss": loss.item(), 
                 "training_rmse": rmse,
                 "training_nll": nll,  
-                "ls_mean":  model.variational_strategy.covar_module_mean.lengthscale.item(),
-                "ls": model.covar_module.lengthscale.item(),
+                "ls_mean":  model.variational_strategy.covar_module_mean.lengthscale.mean().item(),
+                "ls": model.covar_module.lengthscale.mean().item(),
+                # "ls_mean":  model.variational_strategy.covar_module_mean.base_kernel.lengthscale.mean().item(),
+                # "ls": model.covar_module.base_kernel.lengthscale.mean().item(),
             }, step=i+previous_epoch)
-        if i % 10 == 0:
-            print(f"loss: {loss.item():.3f}, lengthscale_mean: {model.variational_strategy.covar_module_mean.lengthscale.item():.3f}, lengthscale_covar: {model.covar_module.lengthscale.item():.3f}")
+        if i % 50 == 0:
+            # print(f"loss: {loss.item():.3f}, lengthscale_mean: {model.variational_strategy.covar_module_mean.lengthscale.mean().item():.3f}, lengthscale_covar: {model.covar_module.lengthscale.mean().item():.3f}")
             if val_x is not None:
                 min_val_rmse, min_val_nll = val_gp(model, val_x, val_y,
                     test_batch_size=1024, device=device, tracker=tracker, step=i+previous_epoch, 
                     min_val_rmse=min_val_rmse, min_val_nll=min_val_nll
                     )
             if test_x is not None:
-                _, _, test_rmse, test_nll, _ = eval_gp(model, test_x, test_y,
+                _, _, test_rmse, test_nll = eval_gp(model, test_x, test_y,
                     test_batch_size=1024, device=device, tracker=tracker, step=i+previous_epoch)
                 model.train()
             if save_model:
                 state = {"model": model.state_dict(), "epoch": i}
                 torch.save(state, f'{save_path}.model')
+            if verbose:
+                print(f"\n\nEpoch {i}, loss: {loss.item():.3f}, ls: {model.covar_module.lengthscale.mean().item():.2f}, ls_mean: {model.variational_strategy.covar_module_mean.lengthscale.mean().item():.2f}, nll: {nll:.3f}, rmse: {rmse:.3e}")
+                print(f"testing rmse: {test_rmse:.3e}, nll:{test_nll:.3f}.")
+                sys.stdout.flush()
 
     if val_x is not None:
         min_val_rmse, min_val_nll = val_gp(model, val_x, val_y,
@@ -154,14 +172,15 @@ def train_gp(model, train_x, train_y,
                     min_val_rmse=min_val_rmse, min_val_nll=min_val_nll
                     )
     if test_x is not None:
-        _, _, test_rmse, test_nll, _ = eval_gp(model, test_x, test_y,
+        _, _, test_rmse, test_nll = eval_gp(model, test_x, test_y,
             test_batch_size=1024, device=device, tracker=tracker, step=i)
         print(f"\nLast testing rmse: {test_rmse:.3e}, nll:{test_nll:.3f}.")
 
-    print("model.parameters: ", list(model.named_parameters()))
     
-    print("model.mean_lengthscale: ", model.variational_strategy.covar_module_mean.lengthscale)
-    print("model.lengthscale: ", model.covar_module.lengthscale)
+    print("model.mean_lengthscale: ", model.variational_strategy.covar_module_mean.lengthscale.mean())
+    print("model.lengthscale: ", model.covar_module.lengthscale.mean())
+    # print("model.mean_lengthscale: ", model.variational_strategy.covar_module_mean.base_kernel.lengthscale.mean())
+    # print("model.lengthscale: ", model.covar_module.base_kernel.lengthscale.mean())
 
     # save inducing locations
     if save_u:
@@ -187,7 +206,6 @@ def eval_gp(model, test_x, test_y,
     model.eval()
     means = torch.tensor([0.])
     variances = torch.tensor([0.])
-    start = time.time()
     with torch.no_grad():
         for x_batch, y_batch in test_loader:
             if device == "cuda":
@@ -200,8 +218,6 @@ def eval_gp(model, test_x, test_y,
             else:
                 means = torch.cat([means, preds.mean])
                 variances = torch.cat([variances, preds.variance])
-    end = time.time()
-    testing_time = end - start
 
     means = means[1:]
     variances = variances[1:]
@@ -213,7 +229,7 @@ def eval_gp(model, test_x, test_y,
             "testing_rmse":rmse, 
             "testing_nll":nll,
         }, step=step)
-    return means, variances, rmse, nll, testing_time
+    return means, variances, rmse, nll
 
 
 

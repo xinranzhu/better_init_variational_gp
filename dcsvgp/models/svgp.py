@@ -11,9 +11,9 @@ from torch.utils.data import TensorDataset, DataLoader
 class GPModel(ApproximateGP):
     def __init__(self, inducing_points, kernel_type='se', 
         learn_inducing_locations=True, 
-        use_ngd=False, 
+        use_ngd=False, ard_num_dims=None,
         ):
-        
+        print("ard_num_dims = ", ard_num_dims)
         if use_ngd:
             variational_distribution = NaturalVariationalDistribution(inducing_points.size(0))
         else:
@@ -29,13 +29,14 @@ class GPModel(ApproximateGP):
         # self.covar_module = gpytorch.kernels.ScaleKernel(gpytorch.kernels.RBFKernel())
         # XZ: remove the outside scaling factor for now
         if kernel_type == 'se':
-            self.covar_module = gpytorch.kernels.RBFKernel()
+            self.covar_module = gpytorch.kernels.RBFKernel(ard_num_dims=ard_num_dims)
+            # self.covar_module = gpytorch.kernels.ScaleKernel(gpytorch.kernels.RBFKernel(ard_num_dims=ard_num_dims))
         elif kernel_type == 'matern1/2':
-            self.covar_module = gpytorch.kernels.MaternKernel(nu=0.5)
+            self.covar_module = gpytorch.kernels.MaternKernel(nu=0.5,ard_num_dims=ard_num_dims)
         elif kernel_type == 'matern3/2':
-            self.covar_module = gpytorch.kernels.MaternKernel(nu=1.5)
+            self.covar_module = gpytorch.kernels.MaternKernel(nu=1.5,ard_num_dims=ard_num_dims)
         elif kernel_type == 'matern5/2':
-            self.covar_module = gpytorch.kernels.MaternKernel(nu=2.5)
+            self.covar_module = gpytorch.kernels.MaternKernel(nu=2.5,ard_num_dims=ard_num_dims)
          
     def forward(self, x):
         mean_x = self.mean_module(x)
@@ -140,17 +141,18 @@ def train_gp(model, train_x, train_y,
                 "loss": loss.item(), 
                 "training_rmse": rmse,
                 "training_nll": nll,    
-                "ls": model.covar_module.lengthscale.item(),
+                "ls": model.covar_module.lengthscale.mean().item(),
+                # "ls": model.covar_module.base_kernel.lengthscale.mean().item(),
             }, step=i+previous_epoch)
-        if i % 10 == 0:
-            print(f"loss: {loss.item()}, lengthscale: {model.covar_module.lengthscale.item()}")
+        if i % 50 == 0:
+            # print(f"loss: {loss.item()}, lengthscale: {model.covar_module.lengthscale.mean().item()}")
             if val_x is not None:
                 min_val_rmse, min_val_nll = val_gp(model, val_x, val_y,
                     test_batch_size=1024, device=device, tracker=tracker, step=i+previous_epoch, 
                     min_val_rmse=min_val_rmse, min_val_nll=min_val_nll
                     )
             if test_x is not None:
-                _, _, test_rmse, test_nll, _ = eval_gp(model, test_x, test_y,
+                _, _, test_rmse, test_nll = eval_gp(model, test_x, test_y,
                     test_batch_size=1024, device=device, tracker=tracker, step=i+previous_epoch)
             
             if debug:
@@ -162,8 +164,8 @@ def train_gp(model, train_x, train_y,
                 print("raw_noise.grad, ", model.likelihood.raw_noise.grad.abs().mean().item())
                 sys.stdout.flush()
             if verbose:
-                print(f"\n\nEpoch {i}, loss: {loss.item():.3f}, nll: {nll:.3f}, rmse: {rmse:.3e}")
-                print(f"testing rmse: {test_rmse:.3e}, nll:{test_nll:.3f}.")
+                print(f"\n\nEpoch {i}, loss: {loss.item():.3f}, ls: {model.covar_module.lengthscale.mean().item():.2f}, nll: {nll:.3f}, rmse: {rmse:.3e}")
+                # print(f"testing rmse: {test_rmse:.3e}, nll:{test_nll:.3f}.")
                 sys.stdout.flush()
 
             model.train()
@@ -178,12 +180,13 @@ def train_gp(model, train_x, train_y,
                     min_val_rmse=min_val_rmse, min_val_nll=min_val_nll
                     )
     if test_x is not None:
-        _, _, test_rmse, test_nll, _ = eval_gp(model, test_x, test_y,
+        _, _, test_rmse, test_nll = eval_gp(model, test_x, test_y,
             test_batch_size=1024, device=device, tracker=tracker, step=i+previous_epoch)
         print(f"\nLast testing rmse: {test_rmse:.3e}, nll:{test_nll:.3f}.")
     
 
-    print("model.lengthscale: ", model.covar_module.lengthscale.item())
+    print("model.lengthscale: ", model.covar_module.lengthscale.mean().item())
+    # print("model.lengthscale: ", model.covar_module.base_kernel.lengthscale.mean().item())
     # save inducing locations
     if save_u:
         import pickle as pkl
@@ -209,7 +212,6 @@ def eval_gp(model, test_x, test_y,
     model.eval()
     means = torch.tensor([0.])
     variances = torch.tensor([0.])
-    start = time.time()
     with torch.no_grad():
         for x_batch, y_batch in test_loader:
             if device == "cuda":
@@ -224,9 +226,6 @@ def eval_gp(model, test_x, test_y,
             else:
                 means = torch.cat([means, preds.mean])
                 variances = torch.cat([variances, preds.variance])
-    end = time.time()
-    testing_time = end - start
-
     means = means[1:]
     variances = variances[1:]
     
@@ -237,7 +236,7 @@ def eval_gp(model, test_x, test_y,
             "testing_rmse":rmse, 
             "testing_nll":nll,
         }, step=step)
-    return means, variances, rmse, nll, testing_time
+    return means, variances, rmse, nll
 
 
 
