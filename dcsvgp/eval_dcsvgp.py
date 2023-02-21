@@ -6,7 +6,7 @@ import random
 import torch
 import gpytorch
 import pickle as pkl
-from dcsvgp import GPModel, train_gp, eval_gp
+from models.dcsvgp import GPModel, train_gp, eval_gp
 from eval_experiment import Experiment
 
 
@@ -31,6 +31,8 @@ class DCSVGP_exp(Experiment):
         learn_inducing_locations=True,
         load_u=None,
         ID=None,
+        ARD=False,
+        kernel_type="se",
         ):
 
         self.method_args['init_hypers'] = locals()
@@ -46,9 +48,12 @@ class DCSVGP_exp(Experiment):
             u0 = pkl.load(open(f'u_{load_u}_{self.obj_name}.pkl', 'rb'))
             print(f"Loaded u from {load_u}.")
         
+        ard_num_dims=self.dim if ARD else None
         u0 = torch.tensor(u0)
         model = GPModel(inducing_points=u0, 
                 learn_inducing_locations=learn_inducing_locations,
+                ard_num_dims=ard_num_dims,
+                kernel_type=kernel_type,
                 )
 
         self.model = model
@@ -82,7 +87,7 @@ class DCSVGP_exp(Experiment):
         load_run_path = self.save_path + "_" + mll_type + f"_alpha_{alpha_type}" + "_" + load_run + ".model" if load_run is not None else None
         print("Loading previous run: ", load_run)
 
-        means, variances, rmse, test_nll, testing_time = eval_gp(
+        means, variances, rmse, test_nll = eval_gp(
             self.model, 
             self.test_x, self.test_y, 
             device=self.device,

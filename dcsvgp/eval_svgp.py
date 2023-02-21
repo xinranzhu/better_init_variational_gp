@@ -6,7 +6,7 @@ import random
 import torch
 import gpytorch
 import pickle as pkl
-from svgp import GPModel, train_gp, eval_gp
+from models.svgp import GPModel, train_gp, eval_gp
 from eval_experiment import Experiment
 
 
@@ -31,6 +31,8 @@ class SVGP_exp(Experiment):
         save_model=False,
         load_u=None,
         ID=None,
+        ARD=False,
+        kernel_type="se",
         ):
 
         self.method_args['init_hypers'] = locals()
@@ -48,10 +50,13 @@ class SVGP_exp(Experiment):
         if load_u is not None:
             u0 = pkl.load(open(f'u_{load_u}_{self.obj_name}.pkl', 'rb'))
             print(f"Loaded u from {load_u}.")
-
+        
+        ard_num_dims=self.dim if ARD else None
         u0 = torch.tensor(u0)
         model = GPModel(inducing_points=u0, 
-                learn_inducing_locations=learn_inducing_locations)
+                learn_inducing_locations=learn_inducing_locations,
+                ard_num_dims=ard_num_dims,
+                kernel_type=kernel_type)
         
         self.model = model
         self.save_model = save_model
@@ -64,9 +69,6 @@ class SVGP_exp(Experiment):
         train_batch_size=1024,
         mll_type="PLL", beta=1.0,
         load_run=None,
-        learn_S_only=False,
-        separate_group=None, lr2=None, gamma2=None,
-        learn_variational_only=False, learn_hyper_only=False,
         debug=False, verbose=True, save_u=False, lengthscale_only=False,
         ):
 
@@ -77,7 +79,7 @@ class SVGP_exp(Experiment):
         load_run_path = self.save_path + "_" + mll_type + "_" + "_alpha_None" + load_run + ".model" if load_run is not None else None
         print("Loading previous run: ", load_run)
 
-        means, variances, rmse, test_nll, testing_time = eval_gp(
+        means, variances, rmse, test_nll = eval_gp(
             self.model, 
             self.test_x, self.test_y, 
             device=self.device,
