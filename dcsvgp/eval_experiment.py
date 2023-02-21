@@ -1,8 +1,9 @@
 import numpy as np
 import torch
+import scipy
 import sys
 sys.path.append("../src")
-from utils import load_data, load_data_old
+from utils import load_data, load_data_1d
 
 try:
     import fire
@@ -32,16 +33,19 @@ class Experiment(object):
         else:
             self.device = "cpu"
 
-        self.dim = dim
         self.obj_name = obj_name
         self.seed = seed
 
         if gradients:
-            testfun = eval(f"{obj_name}_with_deriv")()
+            # testfun = eval(f"{obj_name}_with_deriv")()
+            # n_test = 10000
             n = 10000 
-            n_test = 10000
-            args ={"derivative": True, "seed":seed}
-            x, y, _ = load_synthetic_data(testfun, n+n_test, **args)
+            # args ={"derivative": True, "seed":seed}
+            # x, y, _ = load_synthetic_data(testfun, n+n_test, **args)
+            xy = scipy.io.loadmat(f"./synthetic_data/{obj_name}.mat")
+            perm = torch.randperm(n)
+            x = torch.tensor(xy["x"])[perm]
+            y = torch.tensor(xy["y"])[perm]
             self.train_x = x[:n, :]
             self.test_x = x[n:, :]
             self.train_y = y[:n, ...]
@@ -51,11 +55,16 @@ class Experiment(object):
             self.test_n = self.test_x.shape[0]
             self.val_n = 0
         else:
-            self.train_x, self.train_y, self.val_x, self.val_y, self.test_x, self.test_y = load_data(dataset=obj_name, seed=seed)
+            if obj_name == "1D":
+                self.train_x, self.train_y, self.test_x, self.test_y = load_data_1d()
+                self.val_x, self.val_y = None, None
+            else:
+                self.train_x, self.train_y, self.val_x, self.val_y, self.test_x, self.test_y = load_data(dataset=obj_name, seed=seed)
             self.train_n = self.train_x.shape[0]
             self.test_n = self.test_x.shape[0]
-            self.val_n = self.val_x.shape[0]
+            self.val_n = self.val_x.shape[0] if self.val_x is not None else 0
         
+        self.dim = self.train_x.shape[1]
         self.method_args = {}
         self.method_args['init'] = locals()
         del self.method_args['init']['self']
