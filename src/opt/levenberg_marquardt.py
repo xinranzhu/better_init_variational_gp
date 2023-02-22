@@ -13,7 +13,6 @@ def levenberg_marquardt(f, J, x, theta, nsteps=100, rtol=1e-8, tau=1e-3, output_
     fx = f(x,theta)
     Jx = J(x,theta)
     Hx = torch.matmul(Jx.T, Jx)
-    
 #     print(f"x = {x}, Hx = {Hx}")
     mu = tau * max(torch.diag(Hx)).item()
     v = 2.0
@@ -35,7 +34,10 @@ def levenberg_marquardt(f, J, x, theta, nsteps=100, rtol=1e-8, tau=1e-3, output_
         # print(f"k: {k+1}, rnorm: {rnorm}, mu={mu}, v={v}")
         norm_hist.append(rnorm.item())
         if rnorm < rtol:
-            return x, theta
+            if log_each_step:
+                return x, theta, norm_hist, res_dict, (fx.cpu()**2).mean().sqrt(), log_dict
+            else:
+                return x, theta, norm_hist, res_dict, (fx.cpu()**2).mean().sqrt()
         
         # Compute a proposed step and re-evaluate residual vector
         D = torch.diag(mu*torch.ones(Hx.shape[0])).to(device=Hx.device)
