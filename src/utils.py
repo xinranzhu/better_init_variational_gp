@@ -51,10 +51,10 @@ def store(obj_name, method_name, npoints, c, u, theta, phi, sigma,
     # compute nll for verification
     stds = torch.sqrt(torch.diag(pred_covar)) + sigma
     nll = - torch.distributions.Normal(pred_means, stds).log_prob(test_y).mean()
-
     res["Sbar"] = Sbar.cpu()
     res["L"] = L.cpu()
     res["nll"] = nll
+    res["pred_means"] = pred_means.cpu()
     if args:
         res.update(args) 
         
