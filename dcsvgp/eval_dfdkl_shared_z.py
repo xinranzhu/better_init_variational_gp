@@ -29,13 +29,14 @@ class DFDKLSharedU_exp(Experiment):
     def init_hypers(self, num_inducing=500, 
         learn_m=True,
         save_model=False,
-        ID=None
+        ID=None,
+        hidden_dims=None,
         ):
         self.method_args['init_hypers'] = locals()
         # m is the size of Kuu, recorded to maintain the same computational cost
         m = num_inducing
         self.method_args['init_hypers']['m'] = m
-        hidden_dims = self.dim//2
+        hidden_dims = self.dim//2 if hidden_dims is None else hidden_dims
         self.method_args['init_hypers']['hidden_dims'] = hidden_dims
         del self.method_args['init_hypers']['self']
 

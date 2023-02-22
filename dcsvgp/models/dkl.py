@@ -183,15 +183,16 @@ def train_gp(model, train_x, train_y,
                     test_batch_size=1024, device=device, tracker=tracker, step=i+previous_epoch)
             
             if debug:
-                print("u_mean.grad, ", model.variational_strategy.inducing_points_mean.grad.abs().mean().item())
-                print("u_covar.grad, ", model.variational_strategy.inducing_points_covar.grad.abs().mean().item())
+                print("u.shape, ", model.variational_strategy.inducing_points.shape)
+                print("u.grad, ", model.variational_strategy.inducing_points.grad.abs().mean().item())
+                # print("u_covar.grad, ", model.variational_strategy.inducing_points_covar.grad.abs().mean().item())
                 print("weight_mean.grad, ", model.feature_extractor_mean.hidden2.fc.weight.grad.abs().mean().item())
                 print("weight_covar.grad, ", model.feature_extractor_covar.hidden2.fc.weight.grad.abs().mean().item())
-                print("covar.grad, ", model.variational_strategy._variational_distribution.chol_variational_covar.grad.abs().mean().item())
-                print("mean.grad, ", model.variational_strategy._variational_distribution.variational_mean.grad.abs().mean().item())
-                print("raw_lengthscale.grad, ", model.covar_module.base_kernel.raw_lengthscale.grad.abs().mean().item())
-                print("mean_const.grad, ", model.mean_module.constant.grad.abs().mean().item())
-                print("raw_noise.grad, ", model.likelihood.raw_noise.grad.abs().mean().item())
+                # print("covar.grad, ", model.variational_strategy._variational_distribution.chol_variational_covar.grad.abs().mean().item())
+                # print("mean.grad, ", model.variational_strategy._variational_distribution.variational_mean.grad.abs().mean().item())
+                # print("raw_lengthscale.grad, ", model.covar_module.base_kernel.raw_lengthscale.grad.abs().mean().item())
+                # print("mean_const.grad, ", model.mean_module.constant.grad.abs().mean().item())
+                # print("raw_noise.grad, ", model.likelihood.raw_noise.grad.abs().mean().item())
                 sys.stdout.flush()
             if verbose:
                 print(f"\n\nEpoch {i}, loss: {loss.item():.3f}, nll: {nll:.3f}, rmse: {rmse:.3e}")
