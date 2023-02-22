@@ -13,7 +13,7 @@ from spline_rproj import spline_Jproj, spline_rproj
 from fwd_selection import spline_forward_regression
 from levenberg_marquardt import levenberg_marquardt
 from kernels import SEKernel # TODO: add matern
-from utils import store, load_data, load_data_old
+from utils import store, load_data, load_data_old, load_data_1d
 
 
 # TODO: add more args
@@ -59,13 +59,18 @@ def Dtheta_phi(rho, theta):
     return kernel.Dtheta_phi(rho)
 
 
-# loda data
-data_loader = 0 if obj_name in {"bike", "energy", "protein"} else 1
-if data_loader > 0:
-    train_x, train_y, valid_x, valid_y, test_x, test_y = load_data(dataset=obj_name, seed=seed)
-    dim = train_x.shape[1]
+if obj_name == "1D":
+    train_x, train_y, test_x, test_y = load_data_1d()
+    val_x, val_y = None, None
 else:
-    train_x, train_y, val_x, val_y, test_x, test_y = load_data_old(obj_name, dim, seed=seed)
+    # loda data
+    data_loader = 0 if obj_name in {"bike", "energy", "protein"} else 1
+    if data_loader > 0:
+        train_x, train_y, valid_x, valid_y, test_x, test_y = load_data(dataset=obj_name, seed=seed)
+        dim = train_x.shape[1]
+    else:
+        train_x, train_y, val_x, val_y, test_x, test_y = load_data_old(obj_name, dim, seed=seed)
+
 if device == "cuda":
     train_x = train_x.cuda()
     train_y = train_y.cuda()
@@ -187,20 +192,20 @@ sys.stdout.flush()
 store(obj_name, method, num_inducing, clm.cpu(), ulm.cpu(), thetalm, phi, sigma, expid=expid, args=args, 
     train_x=train_x.cpu(), test_x=test_x, test_y=test_y, k=args["lm_nsteps"])
 
-print("\n\ncheck performance at different k")
-for k in output_steps:
-    uk = res_dict[k]["u"].cuda()
-    thetak = res_dict[k]["theta"]
-    train_rmse = res_dict[k]["train_rmse"]
-    ck = spline_fit(uk, train_x, train_y, thetak, phi, sigma=sigma)
-    r = rms_vs_truth(uk, ck, thetak, phi, test_x, test_y)
-    args["time"] = args["time"]*k/args["lm_nsteps"]
-    args["lm_nsteps"] = k
-    args["r"] = r.cpu()
-    args["train_rmse"] = train_rmse
-    print(f"Using {k} steps: train_rmse={train_rmse:.3e}, test_rmse={r:.3e}")
-    store(obj_name, method, num_inducing, ck.cpu(), uk.cpu(), thetak, phi, sigma, expid=expid, args=args, 
-        train_x=train_x.cpu(), test_x=test_x, test_y=test_y, k=k)
+# print("\n\ncheck performance at different k")
+# for k in output_steps:
+#     uk = res_dict[k]["u"].cuda()
+#     thetak = res_dict[k]["theta"]
+#     train_rmse = res_dict[k]["train_rmse"]
+#     ck = spline_fit(uk, train_x, train_y, thetak, phi, sigma=sigma)
+#     r = rms_vs_truth(uk, ck, thetak, phi, test_x, test_y)
+#     args["time"] = args["time"]*k/args["lm_nsteps"]
+#     args["lm_nsteps"] = k
+#     args["r"] = r.cpu()
+#     args["train_rmse"] = train_rmse
+#     print(f"Using {k} steps: train_rmse={train_rmse:.3e}, test_rmse={r:.3e}")
+#     store(obj_name, method, num_inducing, ck.cpu(), uk.cpu(), thetak, phi, sigma, expid=expid, args=args, 
+#         train_x=train_x.cpu(), test_x=test_x, test_y=test_y, k=k)
 
 
 
