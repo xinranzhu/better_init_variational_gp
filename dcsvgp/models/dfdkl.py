@@ -46,7 +46,7 @@ class DenseNetwork(torch.nn.Sequential):
 
 # gp model with deep kernel
 class GPModelDKL(ApproximateGP):
-    def __init__(self, inducing_points, likelihood, hidden_dims=(256, 256) ):
+    def __init__(self, inducing_points, likelihood, hidden_dims=(256, 256), hidden_dims_covar=(256,256)):
         
         feature_extractor_mean = DenseNetwork(
             input_dim=inducing_points.size(-1),
@@ -55,7 +55,7 @@ class GPModelDKL(ApproximateGP):
 
         feature_extractor_covar = DenseNetwork(
             input_dim=inducing_points.size(-1),
-            hidden_dims=hidden_dims).to(inducing_points.device
+            hidden_dims=hidden_dims_covar).to(inducing_points.device
         )   
 
         inducing_points_mean = feature_extractor_mean(inducing_points)

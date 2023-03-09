@@ -47,7 +47,8 @@ class DFDKLSharedU_feature(Experiment):
         likelihood = gpytorch.likelihoods.GaussianLikelihood().cuda() 
         model = GPModelDKL(inducing_points=u0, 
                 likelihood=likelihood,
-                hidden_dims=(hidden_dims, hidden_dims))
+                hidden_dims=(hidden_dims, hidden_dims),
+                hidden_dims_covar=(hidden_dims,hidden_dims))
         
         self.model = model
         self.save_model = save_model

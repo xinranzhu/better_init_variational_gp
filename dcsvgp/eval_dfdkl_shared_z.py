@@ -31,13 +31,16 @@ class DFDKLSharedU_exp(Experiment):
         save_model=False,
         ID=None,
         hidden_dims=None,
+        hidden_dims_covar=None,
         ):
         self.method_args['init_hypers'] = locals()
         # m is the size of Kuu, recorded to maintain the same computational cost
         m = num_inducing
         self.method_args['init_hypers']['m'] = m
-        hidden_dims = self.dim//2 if hidden_dims is None else hidden_dims
+        hidden_dims = self.dim if hidden_dims is None else hidden_dims
+        hidden_dims_covar = self.dim if hidden_dims_covar is None else hidden_dims_covar
         self.method_args['init_hypers']['hidden_dims'] = hidden_dims
+        self.method_args['init_hypers']['hidden_dims_covar'] = hidden_dims_covar
         del self.method_args['init_hypers']['self']
 
         self.learn_m = learn_m
@@ -47,7 +50,8 @@ class DFDKLSharedU_exp(Experiment):
         likelihood = gpytorch.likelihoods.GaussianLikelihood().cuda() 
         model = GPModelDKL(inducing_points=u0, 
                 likelihood=likelihood,
-                hidden_dims=(hidden_dims, hidden_dims))
+                hidden_dims=(hidden_dims, hidden_dims),
+                hidden_dims_covar=(hidden_dims_covar,hidden_dims_covar))
         
         self.model = model
         self.save_model = save_model
