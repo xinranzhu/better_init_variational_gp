@@ -68,6 +68,7 @@ def train_gp(model, train_x, train_y,
     load_run_path=None,
     debug=False, verbose=True, save_u=False, obj_name=None,
     lengthscale_only=False, 
+    fix_hypers=False,
     ):
 
 
@@ -101,10 +102,13 @@ def train_gp(model, train_x, train_y,
         optimizer =  torch.optim.Adam([
                 {'params': model.covar_module.raw_lengthscale}, 
             ], lr=lr) 
-        
-
-    # check_optimizer(optimizer1, name="optimizer1")
-    # check_optimizer(optimizer2, name="optimizer2")
+    if fix_hypers:
+        # learn inducing points and variational params only 
+        optimizer =  torch.optim.Adam([
+                {'params': model.variational_strategy.inducing_points}, 
+                {'params': model.variational_strategy._variational_distribution.variational_mean},
+                {'params': model.variational_strategy._variational_distribution.chol_variational_covar}, 
+            ], lr=lr) 
 
     milestones = [int(num_epochs*len(train_loader)/3), int(2*num_epochs*len(train_loader)/3)]
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones, gamma=gamma)
@@ -118,7 +122,7 @@ def train_gp(model, train_x, train_y,
     min_val_nll = float("Inf")
     model.train()
 
-
+    # losses = torch.tensor([0.])
     for i in range(num_epochs-previous_epoch):
         for k, (x_batch, y_batch) in enumerate(train_loader):
             if device == "cuda":
@@ -136,6 +140,7 @@ def train_gp(model, train_x, train_y,
         stds  = output.variance.sqrt().cpu()
         rmse = torch.mean((means - y_batch.cpu())**2).sqrt()
         nll   = -torch.distributions.Normal(means, stds).log_prob(y_batch.cpu()).mean()
+        # losses = torch.cat([losses, torch.tensor([loss.item()])])
         if tracker is not None:
             tracker.log({
                 "loss": loss.item(), 
