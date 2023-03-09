@@ -167,9 +167,13 @@ class VariationalStrategyDecoupledConditionals(_VariationalStrategy):
         # print("L = ", L_mean.evaluate())
         # print("Kmi = ", induc_data_covar_mean)
         # print("interp_term_mean = ", interp_term_mean)
-        # pkl.dump(L_mean.evaluate(), open("./L.pkl", "wb"))
-        # pkl.dump(induc_data_covar_mean, open("./Kmi.pkl", "wb"))
-        # pkl.dump(interp_term_mean, open("./interp_term_mean.pkl", "wb"))
+        # print("test_mean = ", test_mean[0])
+        # print("inducing_values = ", inducing_values)
+        # pkl.dump(L_mean.evaluate(), open("./L_dcsvgp.pkl", "wb"))
+        # pkl.dump(induc_data_covar_mean, open("./induc_data_covar_dcsvgp.pkl", "wb"))
+        # pkl.dump(interp_term_mean, open("./interp_term_mean_dcsvgp.pkl", "wb"))
+
+        # pkl.dump(predictive_mean, open("./predictive_mean_dcsvgp.pkl", "wb"))
 
         # Compute the covariance of q(f)
         # K_XX + Q_XZ Q_ZZ^{-T/2} S Q_ZZ^{-1/2} Q_ZX - k_XZ K_ZZ^{-T/2} I K_ZZ^{-1/2} K_ZX

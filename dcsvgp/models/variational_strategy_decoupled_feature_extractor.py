@@ -143,7 +143,7 @@ class VariationalStrategyDecoupledFeatureExtractors(_VariationalStrategyDecouple
         
         
         # Compute the covariance of q(f)
-        # K_XX + Q_XZ Q_ZZ^{-T/2} S Q_ZZ^{-1/2} Q_ZX - k_XZ K_ZZ^{-T/2} I K_ZZ^{-1/2} K_ZX
+        # K_XX + K_XZ K_ZZ^{-T/2} S K_ZZ^{-1/2} K_ZX - k_XZ K_ZZ^{-T/2} I K_ZZ^{-1/2} K_ZX
 
         if trace_mode.on():
             predictive_covar = (
