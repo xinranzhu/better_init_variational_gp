@@ -57,6 +57,7 @@ def train_gp(model, train_x, train_y,
     lengthscale_only=False,
     verbose=True,
     alpha=None,
+    fix_hypers=False,
     ):
 
     train_dataset = TensorDataset(train_x, train_y)
@@ -88,7 +89,16 @@ def train_gp(model, train_x, train_y,
                 {'params': model.variational_strategy.covar_module_mean.raw_lengthscale}, 
                 {'params': model.covar_module.raw_lengthscale}, 
             ], lr=lr) 
-
+        
+    if fix_hypers:
+        # learn inducing points and variational params only, and mean_ls
+        optimizer =  torch.optim.Adam([
+                {'params': model.variational_strategy.inducing_points}, 
+                {'params': model.variational_strategy._variational_distribution.variational_mean},
+                {'params': model.variational_strategy._variational_distribution.chol_variational_covar}, 
+                # {'params': model.variational_strategy.covar_module_mean.raw_lengthscale}, 
+            ], lr=lr) 
+        
     milestones = [int(num_epochs*len(train_loader)/3), int(2*num_epochs*len(train_loader)/3)]
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones, gamma=gamma)
        
@@ -112,7 +122,7 @@ def train_gp(model, train_x, train_y,
     min_val_nll = float("Inf")
     model.train()
 
-
+    # losses = torch.tensor([0.])
     for i in range(num_epochs-previous_epoch):
         for k, (x_batch, y_batch) in enumerate(train_loader):
             if device == "cuda":
@@ -128,7 +138,7 @@ def train_gp(model, train_x, train_y,
         stds  = output.variance.sqrt().cpu()
         rmse = torch.mean((means - y_batch.cpu())**2).sqrt()
         nll   = -torch.distributions.Normal(means, stds).log_prob(y_batch.cpu()).mean()
-
+        # losses = torch.cat([losses, torch.tensor([loss.item()])])
         if type(alpha)==str and alpha.startswith("varying"):
             info = alpha.split('-')
             scale = 1 if len(info) == 1 else float(info[1])
@@ -147,7 +157,7 @@ def train_gp(model, train_x, train_y,
                 # "ls_mean":  model.variational_strategy.covar_module_mean.base_kernel.lengthscale.mean().item(),
                 # "ls": model.covar_module.base_kernel.lengthscale.mean().item(),
             }, step=i+previous_epoch)
-        if i % 50 == 0:
+        if i % 10 == 0:
             # print(f"loss: {loss.item():.3f}, lengthscale_mean: {model.variational_strategy.covar_module_mean.lengthscale.mean().item():.3f}, lengthscale_covar: {model.covar_module.lengthscale.mean().item():.3f}")
             if val_x is not None:
                 min_val_rmse, min_val_nll = val_gp(model, val_x, val_y,
