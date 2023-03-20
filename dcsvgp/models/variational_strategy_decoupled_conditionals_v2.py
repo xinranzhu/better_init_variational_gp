@@ -144,7 +144,10 @@ class VariationalStrategyDecoupledConditionals(_VariationalStrategy):
         trace_term = (L_schur_delta_Lq @ L_s).square().sum()
         quad_term = torch.norm(L_schur_delta_Lq @ m).square()
         res2 = trace_term/2 + quad_term/2
-        return res + res2
+        beta1 = kwargs["beta1"]
+        beta2 = kwargs["beta2"]
+        # import pdb; pdb.set_trace()
+        return beta1*res + beta2*res2
 
 
     def forward(self, x, inducing_points, inducing_values, variational_inducing_covar=None, **kwargs):
