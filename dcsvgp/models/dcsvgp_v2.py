@@ -5,7 +5,7 @@ import torch
 import gpytorch
 from gpytorch.models import ApproximateGP
 from gpytorch.variational import CholeskyVariationalDistribution
-from .variational_strategy_decoupled_conditionals_v2 import VariationalStrategyDecoupledConditionals
+from .variational_strategy_decoupled_conditionals_v2_fast import VariationalStrategyDecoupledConditionals
 from torch.utils.data import TensorDataset, DataLoader
 
 class GPModel(ApproximateGP):
@@ -58,8 +58,10 @@ def train_gp(model, train_x, train_y,
     verbose=True,
     alpha=None,
     fix_hypers=False,
+    beta1=1.0, beta2=1.0
     ):
-
+    # print_step = num_epochs//5
+    print_step = 10
     train_dataset = TensorDataset(train_x, train_y)
     train_loader = DataLoader(train_dataset, batch_size=train_batch_size, shuffle=True)
 
@@ -123,13 +125,14 @@ def train_gp(model, train_x, train_y,
     model.train()
 
     losses = torch.tensor([0.])
+    kwargs = {'beta1': beta1, "beta2": beta2}
     for i in range(num_epochs-previous_epoch):
         for k, (x_batch, y_batch) in enumerate(train_loader):
             if device == "cuda":
                 x_batch = x_batch.cuda()
                 y_batch = y_batch.cuda()
             optimizer.zero_grad()
-            kwargs = {'x':x_batch}
+            kwargs['x'] = x_batch
             output = model.likelihood(model(x_batch))
             loss = -mll(output, y_batch, **kwargs)
             loss.backward()
@@ -158,8 +161,8 @@ def train_gp(model, train_x, train_y,
                 # "ls_mean":  model.variational_strategy.covar_module_mean.base_kernel.lengthscale.mean().item(),
                 # "ls": model.covar_module.base_kernel.lengthscale.mean().item(),
             }, step=i+previous_epoch)
-        if i % 10 == 0:
-            # print(f"loss: {loss.item():.3f}, lengthscale_mean: {model.variational_strategy.covar_module_mean.lengthscale.mean().item():.3f}, lengthscale_covar: {model.covar_module.lengthscale.mean().item():.3f}")
+        if i % print_step == 0:
+            print(f"loss: {loss.item():.3f}, lengthscale_mean: {model.variational_strategy.covar_module_mean.lengthscale.mean().item():.3f}, lengthscale_covar: {model.covar_module.lengthscale.mean().item():.3f}")
             if val_x is not None:
                 min_val_rmse, min_val_nll = val_gp(model, val_x, val_y,
                     test_batch_size=1024, device=device, tracker=tracker, step=i+previous_epoch, 

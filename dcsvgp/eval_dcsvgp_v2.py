@@ -71,6 +71,7 @@ class DCSVGP_v2_exp(Experiment):
         load_run=None,
         save_u=False,lengthscale_only=False,
         alpha=-1,
+        beta1=1.0, beta2=1.0
         ):
 
         self.method_args['train'] = locals()
@@ -94,6 +95,11 @@ class DCSVGP_v2_exp(Experiment):
             tracker=None)
         print(f"initial test rmse: {rmse:.4e}, test nll: {test_nll:.4e}")
         
+        if self.wandb:
+            save_path = self.save_path + f'_{mll_type}_alpha_{alpha_type}_{wandb.run.name}'
+        else:
+            save_path = self.save_path + f'_{mll_type}_alpha_{alpha_type}'
+
         self.model = train_gp(
             self.model, 
             self.train_x, self.train_y, 
@@ -105,13 +111,13 @@ class DCSVGP_v2_exp(Experiment):
             device=self.device,
             tracker=self.tracker,
             save_model=self.save_model,
-            save_path=self.save_path + f'_{mll_type}_alpha_{alpha_type}_{wandb.run.name}',
+            save_path=save_path,
             load_run_path=load_run_path,
             test_x=self.test_x, test_y=self.test_y,
             val_x=self.val_x, val_y=self.val_y,
             save_u=save_u, obj_name=self.obj_name,
             lengthscale_only=lengthscale_only,
-            alpha=alpha,
+            alpha=alpha, beta1=beta1, beta2=beta2,
         )
 
         if self.save_model:
