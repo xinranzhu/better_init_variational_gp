@@ -80,9 +80,9 @@ class Experiment(object):
                 entity=self.wandb_entity,
                 config={k: v for method_dict in self.method_args.values() for k, v in method_dict.items()},
             )
+            print("wand run: ", wandb.run.name)
         else:
             self.tracker = None
-        print("wand run: ", wandb.run.name)
         return self
 
     def done(self):
