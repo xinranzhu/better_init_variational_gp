@@ -5,7 +5,7 @@ import torch
 import gpytorch
 from gpytorch.models import ApproximateGP
 from gpytorch.variational import CholeskyVariationalDistribution
-from .variational_strategy_decoupled_conditionals_v2_fast import VariationalStrategyDecoupledConditionals
+from .variational_strategy_decoupled_conditionals_v2 import VariationalStrategyDecoupledConditionals
 from torch.utils.data import TensorDataset, DataLoader
 
 class GPModel(ApproximateGP):

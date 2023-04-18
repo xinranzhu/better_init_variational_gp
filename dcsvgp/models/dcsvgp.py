@@ -5,7 +5,7 @@ import torch
 import gpytorch
 from gpytorch.models import ApproximateGP
 from gpytorch.variational import CholeskyVariationalDistribution
-from .variational_strategy_decoupled_conditionals import VariationalStrategyDecoupledConditionals
+from variational_strategy_decoupled_conditionals import VariationalStrategyDecoupledConditionals
 from torch.utils.data import TensorDataset, DataLoader
 
 class GPModel(ApproximateGP):
@@ -62,7 +62,7 @@ def train_gp(model, train_x, train_y,
 
     train_dataset = TensorDataset(train_x, train_y)
     train_loader = DataLoader(train_dataset, batch_size=train_batch_size, shuffle=True)
-
+    print_step = num_epochs//5
     previous_epoch = 0
     if load_run_path is not None:
         print("Loading model ", load_run_path)
@@ -157,7 +157,7 @@ def train_gp(model, train_x, train_y,
                 # "ls_mean":  model.variational_strategy.covar_module_mean.base_kernel.lengthscale.mean().item(),
                 # "ls": model.covar_module.base_kernel.lengthscale.mean().item(),
             }, step=i+previous_epoch)
-        if i % 10 == 0:
+        if i % print_step == 0:
             # print(f"loss: {loss.item():.3f}, lengthscale_mean: {model.variational_strategy.covar_module_mean.lengthscale.mean().item():.3f}, lengthscale_covar: {model.covar_module.lengthscale.mean().item():.3f}")
             if val_x is not None:
                 min_val_rmse, min_val_nll = val_gp(model, val_x, val_y,
