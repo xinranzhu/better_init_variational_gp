@@ -36,7 +36,7 @@ class DFDKLMean_exp(Experiment):
         # m is the size of Kuu, recorded to maintain the same computational cost
         m = num_inducing
         self.method_args['init_hypers']['m'] = m
-        hidden_dims = self.dim if hidden_dims is None else hidden_dims
+        hidden_dims = max(self.dim//2, 8) if hidden_dims is None else hidden_dims
         self.method_args['init_hypers']['hidden_dims'] = hidden_dims
         del self.method_args['init_hypers']['self']
 
