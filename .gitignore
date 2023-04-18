@@ -16,3 +16,4 @@ uci
 *.yml
 *.model
 *.tar
+*.txt
