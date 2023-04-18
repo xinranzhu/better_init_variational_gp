@@ -44,13 +44,13 @@ class ODSVGP_exp(Experiment):
         self.learn_u = learn_inducing_locations
         self.learn_m = learn_m
 
-        # num_inducing_mean = int(num_inducing*2*0.7) # 70%
-        # num_inducing_covar = int(num_inducing*2*0.3) # 30%
-        # rand_index_mean = random.sample(range(self.train_n), num_inducing_mean)
-        # rand_index_covar = random.sample(range(self.train_n), num_inducing_covar)
-        rand_index = random.sample(range(self.train_n), num_inducing)
-        u0 = self.train_x[rand_index, :]
-        covar_inducing_points = self.train_x[rand_index, :]
+        num_inducing_mean = num_inducing # int(num_inducing*2*0.7) # 70%
+        num_inducing_covar = int(3*num_inducing/7) # int(num_inducing*2*0.3) # 30%
+        rand_index_mean = random.sample(range(self.train_n), num_inducing_mean)
+        rand_index_covar = random.sample(range(self.train_n), num_inducing_covar)
+        # rand_index = random.sample(range(self.train_n), num_inducing)
+        u0 = self.train_x[rand_index_mean, :]
+        covar_inducing_points = self.train_x[rand_index_covar, :]
         print(f"{u0.shape[0]} inducing for mean, {covar_inducing_points.shape[0]} inducing for covar.")
         if load_u is not None:
             u0 = pkl.load(open(f'u_{load_u}_{self.obj_name}.pkl', 'rb'))
