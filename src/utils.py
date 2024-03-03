@@ -8,7 +8,8 @@ import sys
 from splines import spline_K, spline_Kuu, spline_eval
 
 def store(obj_name, method_name, npoints, c, u, theta, phi, sigma, 
-    expid=None, args=None, V=None, num_cut=None, train_x=None, test_x=None, test_y=None, k=None):
+    expid=None, args=None, V=None, num_cut=None, train_x=None, test_x=None, test_y=None, k=None,
+    CLEAN=False):
 
     m, dim = u.shape
     res = {"u": u.cpu(), "theta": theta, "sigma": sigma}
@@ -58,15 +59,18 @@ def store(obj_name, method_name, npoints, c, u, theta, phi, sigma,
     if args:
         res.update(args) 
         
-    seed = args["seed"]
-    if num_cut is None and k is None:
-        path = f'../results/{obj_name}-{dim}_{method_name}_m{npoints}_{expid}_{seed}.pkl'
-    elif k is None:
-        path = f'../results/{obj_name}-{dim}_{method_name}_m{npoints}_{expid}_{seed}_{num_cut}.pkl'
-    elif num_cut is None:
-        path = f'../results/{obj_name}-{dim}_{method_name}_m{npoints}_{expid}_{seed}_step{k}.pkl'
+    if CLEAN:
+        path = './initialization_results.pkl'
     else:
-        path = f'../results/{obj_name}-{dim}_{method_name}_m{npoints}_{expid}_{seed}_{num_cut}_step{k}.pkl'
+        seed = args["seed"]
+        if num_cut is None and k is None:
+            path = f'../results/{obj_name}-{dim}_{method_name}_m{npoints}_{expid}_{seed}.pkl'
+        elif k is None:
+            path = f'../results/{obj_name}-{dim}_{method_name}_m{npoints}_{expid}_{seed}_{num_cut}.pkl'
+        elif num_cut is None:
+            path = f'../results/{obj_name}-{dim}_{method_name}_m{npoints}_{expid}_{seed}_step{k}.pkl'
+        else:
+            path = f'../results/{obj_name}-{dim}_{method_name}_m{npoints}_{expid}_{seed}_{num_cut}_step{k}.pkl'
 
 
     pkl.dump(res, open(path, 'wb'))
@@ -75,8 +79,9 @@ def store(obj_name, method_name, npoints, c, u, theta, phi, sigma,
 def func_1d(x, t=1):
     return np.exp(-(x+1)**t) * np.sin(2*np.pi*x)
 
-def load_data_1d(train_n=100, test_n=1000, num_inducing=20, sigma_y=0.1):
+def load_data_1d(train_n=100, test_n=1000, num_inducing=20, sigma_y=0.1, seed=214):
     # changing lengthscale 
+    np.random.seed(seed=seed)
     t=1
     train_x = np.linspace(-2, 4, train_n).reshape(-1, 1)
     train_y = func_1d(train_x, t=t).squeeze()
